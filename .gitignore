@@ -1,0 +1,53 @@
+# MATLAB auto-save and backup files
+*.asv
+*.m~
+*.ssc~
+*.sfx~
+
+# Compiled MEX binaries (across different operating systems)
+*.mexa64
+*.mexmaci64
+*.mexmaca64
+*.mexw64
+*.mexw32
+
+# P-code files (obfuscated/compiled MATLAB code)
+*.p
+
+# Simulink cache and auto-generated code directories
+*.slxc
+slprj/
+sfprj/
+*_ert_rtw/
+*_grt_rtw/
+*.rtw
+# Note: You may want to ignore generated C/C++ files if you strictly use Simulink Coder, 
+# but be careful not to ignore your own custom C/C++ files.
+# *.c
+# *.h
+
+# MATLAB Project files
+# Ignore user-specific project preferences but keep the main .prj file
+resources/project/preferences.mat
+.SimulinkProject/
+*.mlsettings
+
+# MATLAB App Designer backups
+*.mlapp~
+
+# Output data and figures (Uncomment these if you want to ignore them)
+# *.mat
+# *.dat
+# *.csv
+# *.fig
+# *.png
+# *.pdf
+
+# OS generated hidden files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
