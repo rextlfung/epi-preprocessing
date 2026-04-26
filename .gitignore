@@ -36,12 +36,13 @@ resources/project/preferences.mat
 *.mlapp~
 
 # Output data and figures (Uncomment these if you want to ignore them)
-# *.mat
-# *.dat
-# *.csv
-# *.fig
-# *.png
-# *.pdf
+*.mat
+*.dat
+*.csv
+*.fig
+*.png
+*.pdf
+*.cfg
 
 # OS generated hidden files
 .DS_Store
