@@ -14,16 +14,21 @@ cfg.addpaths = {
 };
 
 %% ── Data directory & file names ──────────────────────────────────────────────
-cfg.datdir  = '/mnt/storage/rexfung/20260409tap/recon/';
-cfg.seqdir  = fullfile(cfg.datdir, '../seqs/pd/');
+cfg.datdir  = '/mnt/storage/rexfung/20260409tap/';
+cfg.seqname = 'caipi_ts';
+cfg.seqdir  = fullfile(cfg.datdir, sprintf('seqs/%s/', cfg.seqname));
 
-cfg.fn.gre      = fullfile(cfg.datdir, 'gre.h5');
-cfg.fn.cal      = fullfile(cfg.datdir, 'pd_cal.h5');
-cfg.fn.noise    = fullfile(cfg.datdir, 'pd_noise.h5');
-cfg.fn.epi      = fullfile(cfg.datdir, 'pd_epi.h5');
+% Sequence name used to distinguish EPI scan variants (e.g. 'pd', 'caipi',
+% 'caipi_ts').  Inserted into all EPI-variant filenames below.
+
+
+cfg.fn.gre      = fullfile(cfg.datdir, 'scanarchives/gre.h5');
+cfg.fn.cal      = fullfile(cfg.datdir, sprintf('scanarchives/%s_cal.h5',    cfg.seqname));
+cfg.fn.noise    = fullfile(cfg.datdir, sprintf('scanarchives/%s_noise.h5',  cfg.seqname));
+cfg.fn.epi      = fullfile(cfg.datdir, sprintf('scanarchives/%s_epi.h5',    cfg.seqname));
 cfg.fn.kxoe     = fullfile(cfg.seqdir, sprintf('kxoe%d.mat', 90)); % updated below
 cfg.fn.samp_log = fullfile(cfg.seqdir, 'samp_locs.mat');
-cfg.fn.recon    = fullfile(cfg.datdir, 'pd_epi_zf.mat');
+cfg.fn.recon    = fullfile(cfg.datdir, sprintf('recon/%s_epi_zf.mat', cfg.seqname));
 
 % kxoe filename depends on Nx; set after params.m is loaded if needed
 % cfg.fn.kxoe = fullfile(cfg.seqdir, sprintf('kxoe%d.mat', Nx));
@@ -45,9 +50,9 @@ cfg.threshold_mask = 1;       % Voxels whose last eigenvalue exceeds this
                               % threshold are zeroed out in the support mask.
 
 %% ── CG-SENSE / PICS reconstruction ──────────────────────────────────────────
-cfg.lamb    = 0.01;  % L1 regularisation weight (λ) passed to BART pics.
+cfg.lamb    = 0.005; % L1 regularisation weight (λ) passed to BART pics.
                      % Larger → smoother, smaller → noisier but sharper.
-cfg.Nframes = 18;    % Number of temporal frames to reconstruct in cg_sense.m.
+cfg.Nframes = 387;   % Number of temporal frames to reconstruct in cg_sense.m.
 
 %% ── Pipeline options ─────────────────────────────────────────────────────────
 cfg.useOrchestra = true;   % Use Orchestra library to read ScanArchive files.

@@ -15,16 +15,18 @@ run('./params.m');   % Loads sequence/system parameters
 %% ── Derived filenames ────────────────────────────────────────────────────────
 % Separate recon data directory (GRE and EPI may live elsewhere from storage)
 datdir   = '/mnt/storage/rexfung/20260409tap/recon/';
-fn_epi   = fullfile(datdir, 'caipi_ts_epi_zf.mat');
+fn_epi   = fullfile(datdir, sprintf('%s_epi_zf.mat',                   cfg.seqname));
 fn_gre   = fullfile(datdir, 'gre.mat');
-fn_smaps = fullfile(datdir, sprintf('smaps_%s.mat', cfg.SENSEmethod));
-fn_recon = sprintf('%s_recon_cgs_l1_r%.4f.nii', fn_epi(1:end-11), cfg.lamb);
+fn_smaps = fullfile(datdir, sprintf('smaps_%s.mat',                    cfg.SENSEmethod));
+fn_recon = fullfile(datdir, sprintf('%s_recon_cgs_l1_r%.4f.nii',      cfg.seqname, cfg.lamb));
 
 %% ── BART reconstruction command ──────────────────────────────────────────────
 % -l1 : L1 wavelet regularisation
 % -r  : regularisation weight λ
-% -e  : ESPIRiT model (uses sensitivity maps)
-bart_cmd = sprintf('pics -l1 -r%f -e', cfg.lamb);
+% -S  : strict SENSE (don't use eigenvalue weighting as there is no ACS region)
+% -i 100: instead of the default 30 (typically insufficient for R = 6)
+% -g : use GPU
+bart_cmd = sprintf('pics -l1 -r%f -i 100 -S', cfg.lamb);
 fprintf('BART command: %s\n', bart_cmd);
 
 %% ── Load zero-filled k-space ─────────────────────────────────────────────────

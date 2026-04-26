@@ -75,28 +75,30 @@ save(strrep(cfg.fn.gre, '.h5', '.mat'), 'ksp_gre', '-v7.3');
 %% STEP 3 — Sensitivity maps
 % Done here so ksp_gre is freed BEFORE the large EPI data is loaded.
 % Peak memory: ksp_noise + ksp_gre + smaps_raw  (no EPI yet).
-fn_smaps = fullfile(cfg.datdir, sprintf('smaps_%s.mat', cfg.SENSEmethod));
+fn_smaps = fullfile(cfg.datdir, sprintf('recon/smaps_%s.mat', cfg.SENSEmethod));
 
 if cfg.doSENSE
     if exist(fn_smaps, 'file')
         fprintf('Loading precomputed sensitivity maps from %s\n', fn_smaps);
-        load(fn_smaps, 'smaps_raw', 'emaps');
+        load(fn_smaps, 'smaps_raw', 'emaps', 'smaps');
     else
         fprintf('Estimating sensitivity maps via %s...\n', cfg.SENSEmethod);
         tic
             [smaps_raw, emaps] = makeSmaps(ksp_gre, cfg.SENSEmethod);
         toc
-        save(fn_smaps, 'smaps_raw', 'emaps', '-v7.3');
+        smaps = process_smaps(smaps_raw, emaps, fov_gre, fov, ...
+            Nx_gre, Ny_gre, Nz_gre, Nx, Ny, Nz, cfg.Nvcoils, ...
+            cfg.SENSEmethod, cfg.threshold_mask);
+        save(fn_smaps, 'smaps_raw', 'emaps', 'smaps', '-v7.3');
     end
-
-    smaps = process_smaps(smaps_raw, emaps, fov_gre, fov, ...
-        Nx_gre, Ny_gre, Nz_gre, Nx, Ny, Nz, cfg.Nvcoils, ...
-        cfg.SENSEmethod, cfg.threshold_mask);
     clear smaps_raw emaps;
 
     % Uncomment if x-direction alignment between GRE and EPI is needed:
     % smaps = flip(smaps, 1);
 end
+
+% plot smaps to check that they look reasonable
+interactive4D(abs(smaps));
 
 % ksp_gre is no longer needed — free it before loading EPI
 clear ksp_gre;
@@ -160,88 +162,99 @@ catch ME
 end
 [Nframes, Nshots, ETL, ~] = size(schedules);
 
-%% STEP 6 — EPI data  (loaded last; largest dataset)
-% At this point ksp_gre has already been freed, so peak memory is bounded
-% by ksp_epi_raw + ksp_epi + ksp_loop_cart + ksp_epi_zf + smaps + ksp_noise.
-% Each intermediate is cleared as soon as it is no longer needed.
-fprintf('Loading EPI data...\n');
+%% STEP 6 — EPI data  (frame-by-frame to bound memory)
+fprintf('Opening EPI archive: %s\n', cfg.fn.epi);
 try
-    ksp_epi_raw = single(orc_read(cfg.fn.epi));
+    epi_archive = GERecon('Archive.Load', cfg.fn.epi);
 catch ME
-    error('main: Failed to read EPI file ''%s''.\n  %s', cfg.fn.epi, ME.message);
+    error('main: Failed to open EPI archive ''%s''.\n  %s', cfg.fn.epi, ME.message);
 end
 
-assert(Nfid == size(ksp_epi_raw, 1), ...
-    'main: EPI Nfid (%d) does not match noise Nfid (%d).', ...
-    size(ksp_epi_raw, 1), Nfid);
-fprintf('  Max |Re(epi)|: %g,  Max |Im(epi)|: %g\n', ...
-    max(real(ksp_epi_raw(:))), max(imag(ksp_epi_raw(:))));
+shots_per_frame       = ETL * Nshots;
+total_shots_expected  = shots_per_frame * Nframes;
+if epi_archive.FrameCount < total_shots_expected
+    error('main: EPI archive has %d shots but %d expected (%d frames × %d shots/frame).', ...
+        epi_archive.FrameCount, total_shots_expected, Nframes, shots_per_frame);
+end
 
-% Whiten — same singleton trick as cal so ccapply gets coils in BART dim 3
-ksp_epi = bart('whiten -n', ...
-    reshape(permute(ksp_epi_raw, [1 3 2]), Nfid, [], 1, Ncoils), ksp_noise);
-clear ksp_epi_raw ksp_noise;  % both no longer needed
+% Pre-allocate the output file so each frame can be written immediately,
+% avoiding any need to hold the full time-series in memory.
+fprintf('Pre-allocating output file: %s\n', cfg.fn.recon);
+mf = matfile(cfg.fn.recon, 'Writable', true);
+mf.ksp_epi_zf = complex(zeros(Nx, Ny, Nz, cfg.Nvcoils, Nframes, 'single'));
 
-% Coil-compress using the matrix derived from GRE, then free it
-ksp_epi = squeeze(bart(sprintf('ccapply -p %d', cfg.Nvcoils), ksp_epi, cc_matrix));
-ksp_epi = permute(ksp_epi, [1 3 2]);  % → [Nfid, Nvcoils, N_epi]
-clear cc_matrix;
-
-% Trim to the exact number of frames and reshape for gridding
-ksp_epi = ksp_epi(:, :, 1:ETL*Nshots*Nframes);
-ksp_epi = reshape(ksp_epi, Nfid, cfg.Nvcoils, ETL, Nshots, Nframes);
-ksp_epi = permute(ksp_epi, [1 3 4 2 5]);  % → [Nfid, ETL, Nshots, Nvcoils, Nframes]
-
-% Grid along kx via NUFFT (parallel over frames)
-ksp_loop_cart = zeros([Nx, size(ksp_epi, 2:ndims(ksp_epi))], 'single');
-fprintf('Gridding %d frames (parallel)...\n', Nframes);
+fprintf('Processing %d frames (%d shots/frame)...\n', Nframes, shots_per_frame);
 tic
-parfor frame = 1:Nframes
-    fprintf('  Frame %d / %d\n', frame, Nframes);
-    ksp_loop_cart(:, :, :, :, frame) = hmriutils.epi.rampsampepi2cart( ...
-        squeeze(ksp_epi(:, :, :, :, frame)), kxo, kxe, Nx, fov(1)*100, 'nufft');
-end
-toc
-clear ksp_epi;
-
-% Apply odd/even phase correction along kx
-ksp_loop_cart = hmriutils.epi.epiphasecorrect(ksp_loop_cart, a);
-
-% Allocate zero-filled k-space and scatter gridded data into it
-ksp_epi_zf = zeros(Nx, Ny, Nz, cfg.Nvcoils, Nframes, 'single');
-
 for frame = 1:Nframes
-    for shot = 1:Nshots
-        for echo = 1:ETL
-            iy = schedules(frame, shot, echo, 1);
-            iz = schedules(frame, shot, echo, 2);
+    fprintf('  Frame %d / %d\n', frame, Nframes);
 
-            % Warn if a k-space location is being overwritten (should not happen)
-            if any(ksp_epi_zf(:, iy, iz, :, frame) ~= 0)
+    % ── Read ETL*Nshots consecutive readouts for this volumetric frame ─────
+    ksp_frame_raw = zeros(Nfid, Ncoils, shots_per_frame, 'single');
+    for s = 1:shots_per_frame
+        shot = GERecon('Archive.Next', epi_archive);
+        ksp_frame_raw(:, :, s) = single(shot.Data);
+    end
+
+    % ── Whiten ─────────────────────────────────────────────────────────────
+    % Coils must be in BART dim 3 (MATLAB dim 4): [Nfid, shots, 1, Ncoils]
+    ksp_frame = bart('whiten -n', ...
+        reshape(permute(ksp_frame_raw, [1 3 2]), Nfid, shots_per_frame, 1, Ncoils), ...
+        ksp_noise);
+    clear ksp_frame_raw;
+
+    % ── Coil-compress → [Nfid, cfg.Nvcoils, shots_per_frame] ──────────────
+    ksp_frame = squeeze(bart(sprintf('ccapply -p %d', cfg.Nvcoils), ksp_frame, cc_matrix));
+    ksp_frame = permute(ksp_frame, [1 3 2]);
+
+    % ── Reshape → [Nfid, ETL, Nshots, Nvcoils] ────────────────────────────
+    % Matches the layout the original produced via reshape+permute on the
+    % full dataset before splitting across frames.
+    ksp_frame = reshape(ksp_frame, Nfid, cfg.Nvcoils, ETL, Nshots);
+    ksp_frame = permute(ksp_frame, [1 3 4 2]);
+
+    % ── Grid along kx ──────────────────────────────────────────────────────
+    ksp_frame_cart = hmriutils.epi.rampsampepi2cart( ...
+        ksp_frame, kxo, kxe, Nx, fov(1)*100, 'nufft');
+
+    % ── Odd/even phase correction ───────────────────────────────────────────
+    ksp_frame_cart = hmriutils.epi.epiphasecorrect(ksp_frame_cart, a);
+
+    % ── Scatter readouts into zero-filled volume ───────────────────────────
+    ksp_frame_zf = zeros(Nx, Ny, Nz, cfg.Nvcoils, 'single');
+    for shot_idx = 1:Nshots
+        for echo = 1:ETL
+            iy = schedules(frame, shot_idx, echo, 1);
+            iz = schedules(frame, shot_idx, echo, 2);
+
+            if any(ksp_frame_zf(:, iy, iz, :) ~= 0)
                 warning('main: Overwriting frame %d, ky=%d, kz=%d. Check schedule.', ...
                     frame, iy, iz);
             end
 
-            ksp_epi_zf(:, iy, iz, :, frame) = ksp_loop_cart(:, echo, shot, :, frame);
+            ksp_frame_zf(:, iy, iz, :) = ksp_frame_cart(:, echo, shot_idx, :);
         end
     end
-end
-clear ksp_loop_cart;
 
-%% Save
-fprintf('Saving zero-filled k-space to %s\n', cfg.fn.recon);
-save(cfg.fn.recon, 'ksp_epi_zf', '-v7.3');
+    % ── Write this frame to disk immediately ───────────────────────────────
+    mf.ksp_epi_zf(:, :, :, :, frame) = single(ksp_frame_zf);
+end
+toc
+
+% ksp_noise and cc_matrix are no longer needed
+clear ksp_noise cc_matrix;
+fprintf('EPI processing complete. Output: %s\n', cfg.fn.recon);
 
 %% STEP 7 — Quick sanity-check reconstruction
 NtestFrames = 6;
-ksp_test    = ksp_epi_zf(:, :, :, :, NframesDiscard + (1:NtestFrames));
+% Stream only the test frames from disk; mf supports partial indexing
+ksp_test = mf.ksp_epi_zf(:, :, :, :, NframesDiscard + (1:NtestFrames));
 
 imgs_mc = zeros(Nx, Ny, Nz, cfg.Nvcoils, NtestFrames);
 for frame = 1:NtestFrames
     imgs_mc(:, :, :, :, frame) = toppe.utils.ift3(ksp_test(:, :, :, :, frame));
 end
 
-%% ── Coil combination ─────────────────────────────────────────────────────────
+% Coil combination
 if cfg.doSENSE
     img_final = squeeze(sum(imgs_mc .* conj(smaps), 4));  % Matched-filter combination
 else
@@ -250,16 +263,3 @@ end
 
 interactive4D(abs(permute(img_final,   [2 3 1 4])));
 interactive4D(angle(permute(img_final, [2 3 1 4])));
-
-%% ── CG-SENSE reconstruction (test frames) ────────────────────────────────────
-if cfg.doSENSE
-    rec_cgs = zeros(Nx, Ny, Nz, NtestFrames);
-
-    for t = 1:NtestFrames
-        fprintf('CG-SENSE frame %d / %d\n', t, NtestFrames);
-        rec_cgs(:, :, :, t) = bart('pics', ksp_test(:, :, :, :, t), smaps);
-    end
-
-    interactive4D(abs(permute(rec_cgs,   [2 3 1 4])));
-    interactive4D(angle(permute(rec_cgs, [2 3 1 4])));
-end

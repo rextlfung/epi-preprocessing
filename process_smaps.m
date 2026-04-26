@@ -12,6 +12,14 @@ function smaps = process_smaps(smaps_raw, emaps, fov_gre, fov, ...
 %     2. Crop the z dimension to match the EPI field of view.
 %     3. Interpolate (x,y,z) to match the EPI acquisition grid.
 %
+%   Assumption
+%   ----------
+%   The GRE and EPI acquisitions must share the same isocenter. The z crop
+%   in step 2 removes an equal number of slices from both ends of the GRE
+%   volume, which is only valid when the EPI slab is centered at the same
+%   z-position as the GRE volume. A mismatched isocenter will produce a
+%   spatially misregistered sensitivity map.
+%
 %   Inputs
 %   ------
 %   smaps_raw      Unprocessed sensitivity maps  [Nx_gre × Ny_gre × Nz_gre × Nvcoils]
@@ -79,4 +87,12 @@ function smaps = process_smaps(smaps_raw, emaps, fov_gre, fov, ...
         smaps_new(:, :, :, coil) = imresize3(smaps(:, :, :, coil), [Nx, Ny, Nz]);
     end
     smaps = smaps_new;
+
+    %% ── 4. Normalize coil maps (ensures unit operator norm for BART pics) ─────────
+    % At each voxel, divide by the root-sum-of-squares across coils.
+    % This ensures sum(|s_c|^2, coils) <= 1 everywhere, matching the
+    % ESPIRiT convention that BART pics expects when no step size is given.
+    rss = sqrt(sum(abs(smaps).^2, 4));          % [Nx, Ny, Nz]
+    rss(rss < eps('single')) = 1;               % avoid divide-by-zero in background
+    smaps = smaps ./ rss;
 end
