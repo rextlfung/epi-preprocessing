@@ -14,14 +14,14 @@ cfg.addpaths = {
 };
 
 %% ── Data directory & file names ──────────────────────────────────────────────
-cfg.datdir  = '/mnt/storage/rexfung/20260409tap/';
-cfg.seqname = 'caipi_ts';
+cfg.datdir  = '/StorageRAID/rexfung/20260501ball/';
+cfg.seqname = 'pd_acs';
 cfg.seqdir  = fullfile(cfg.datdir, sprintf('seqs/%s/', cfg.seqname));
 
 % Sequence name used to distinguish EPI scan variants (e.g. 'pd', 'caipi',
 % 'caipi_ts').  Inserted into all EPI-variant filenames below.
 
-
+cfg.fn.params   = fullfile(cfg.datdir, sprintf('seqs/%s/params.m', cfg.seqname));
 cfg.fn.gre      = fullfile(cfg.datdir, 'scanarchives/gre.h5');
 cfg.fn.cal      = fullfile(cfg.datdir, sprintf('scanarchives/%s_cal.h5',    cfg.seqname));
 cfg.fn.noise    = fullfile(cfg.datdir, sprintf('scanarchives/%s_noise.h5',  cfg.seqname));
@@ -34,9 +34,12 @@ cfg.fn.recon    = fullfile(cfg.datdir, sprintf('recon/%s_epi_zf.mat', cfg.seqnam
 % cfg.fn.kxoe = fullfile(cfg.seqdir, sprintf('kxoe%d.mat', Nx));
 
 %% ── Coil parameters ─────────────────────────────────────────────────────────
-cfg.Nvcoils = 18;   % Virtual coils after PCA compression.
-                    % Chosen based on visual inspection of the singular-value
-                    % "knee". Decrease for faster recon, increase for more SNR.
+% Nvcoils is auto-selected in main.m from the whitened GRE eigenvalue spectrum.
+% Components are kept until the cumulative explained variance reaches
+% cfg.cc_energy_thresh. Lower bound: max(selected, 2*R) for SENSE feasibility.
+cfg.cc_energy_thresh = 0.9;    % Retain 90% of total coil-data variance.
+                                % Lower → fewer virtual coils (faster, less SNR).
+                                % Higher → more virtual coils (more SNR, slower).
 
 %% ── EPI preprocessing ───────────────────────────────────────────────────────
 cfg.delay            = -1;    % Estimated k-space center offset (samples).
@@ -52,7 +55,7 @@ cfg.threshold_mask = 1;       % Voxels whose last eigenvalue exceeds this
 %% ── CG-SENSE / PICS reconstruction ──────────────────────────────────────────
 cfg.lamb    = 0.005; % L1 regularisation weight (λ) passed to BART pics.
                      % Larger → smoother, smaller → noisier but sharper.
-cfg.Nframes = 387;   % Number of temporal frames to reconstruct in cg_sense.m.
+cfg.Nframes = 30;    % Number of temporal frames to reconstruct in cg_sense.m.
 
 %% ── Pipeline options ─────────────────────────────────────────────────────────
 cfg.useOrchestra = true;   % Use Orchestra library to read ScanArchive files.

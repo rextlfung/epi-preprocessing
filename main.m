@@ -21,7 +21,7 @@ Sequence design repository: https://github.com/rextlfung/rand3depi
 
 %% ── Dependencies ─────────────────────────────────────────────────────────────
 run('./config.m');   % Loads cfg struct (paths, tunable parameters)
-run('./params.m');   % Loads MRI system + sequence parameters into workspace
+run(cfg.fn.params);  % Loads MRI system + sequence parameters into workspace
 
 for p = cfg.addpaths
     addpath(p{1});
@@ -58,18 +58,49 @@ fprintf('  Max |Im(GRE)|: %g\n', max(imag(ksp_gre_raw(:))));
 
 % Reshape: discard the blipless calibration block prepended by the scanner
 Nfid_gre = size(ksp_gre_raw, 1);
-ksp_gre  = ksp_gre_raw(:, :, Nfid_gre+1:end);
+ksp_gre  = ksp_gre_raw(:, :, Ny_gre+1:end);
 ksp_gre  = reshape(ksp_gre, Nx_gre, Ncoils, Ny_gre, Nz_gre);
 ksp_gre  = permute(ksp_gre, [1 3 4 2]);  % → [Nx_gre, Ny_gre, Nz_gre, Ncoils]
 clear ksp_gre_raw;
 
-% Whiten then PCA-compress to cfg.Nvcoils virtual coils.
+% Whiten, auto-select Nvcoils from the eigenvalue spectrum, then PCA-compress.
 % cc -A  : SVD over the full k-space volume (equivalent to the previous PCA approach)
 % cc -M  : return the compression matrix rather than compressed data, so the
 %          same matrix can be applied consistently to cal and EPI via ccapply.
 ksp_gre   = bart('whiten -n', ksp_gre, ksp_noise);
-cc_matrix = bart(sprintf('cc -p %d -A -M', cfg.Nvcoils), ksp_gre);
-ksp_gre   = bart(sprintf('ccapply -p %d', cfg.Nvcoils), ksp_gre, cc_matrix);
+
+% Keep the minimum number of PCA components whose cumulative explained variance
+% reaches cfg.cc_energy_thresh. Lower bound: 2R for SENSE feasibility.
+ksp_mat  = reshape(permute(ksp_gre, [4 1 2 3]), Ncoils, []);
+C        = real((ksp_mat * ksp_mat') / size(ksp_mat, 2));
+evals    = sort(real(eig(C)), 'descend');
+clear ksp_mat C;
+
+cumvar      = cumsum(evals) / sum(evals);
+Nvcoils_e   = find(cumvar >= cfg.cc_energy_thresh, 1, 'first');
+Nvcoils     = max(Nvcoils_e, 2 * R);
+Nvcoils     = min(Nvcoils, Ncoils);
+fprintf('  Energy threshold %.4f: %d components needed\n', cfg.cc_energy_thresh, Nvcoils_e);
+fprintf('  Lower bound 2R = %d  →  selected Nvcoils = %d\n', 2 * R, Nvcoils);
+
+figure;
+yyaxis left;
+semilogy(evals, 'b.-', 'MarkerSize', 10);
+ylabel('Eigenvalue (sample covariance)');
+yyaxis right;
+plot(cumvar * 100, 'r-');
+yline(cfg.cc_energy_thresh * 100, 'r--', sprintf('%.1f%%', cfg.cc_energy_thresh * 100));
+ylabel('Cumulative explained variance (%)');
+xline(Nvcoils, 'g-', sprintf('Nvcoils = %d', Nvcoils));
+if Nvcoils > Nvcoils_e
+    xline(Nvcoils_e, 'b--', sprintf('energy → %d', Nvcoils_e));
+end
+xlabel('Component index');
+title(sprintf('Coil compression eigenvalue spectrum  (selected Nvcoils = %d)', Nvcoils));
+clear Nvcoils_e;
+
+cc_matrix = bart(sprintf('cc -p %d -A -M', Nvcoils), ksp_gre);
+ksp_gre   = bart(sprintf('ccapply -p %d', Nvcoils), ksp_gre, cc_matrix);
 save(strrep(cfg.fn.gre, '.h5', '.mat'), 'ksp_gre', '-v7.3');
 
 %% STEP 3 — Sensitivity maps
@@ -78,20 +109,30 @@ save(strrep(cfg.fn.gre, '.h5', '.mat'), 'ksp_gre', '-v7.3');
 fn_smaps = fullfile(cfg.datdir, sprintf('recon/smaps_%s.mat', cfg.SENSEmethod));
 
 if cfg.doSENSE
+    fn_smaps_valid = false;
     if exist(fn_smaps, 'file')
+        tmp = load(fn_smaps, 'Nvcoils');
+        fn_smaps_valid = isfield(tmp, 'Nvcoils') && tmp.Nvcoils == Nvcoils;
+        if ~fn_smaps_valid
+            fprintf('  Smaps file Nvcoils mismatch — recomputing.\n');
+        end
+        clear tmp;
+    end
+
+    if fn_smaps_valid
         fprintf('Loading precomputed sensitivity maps from %s\n', fn_smaps);
-        load(fn_smaps, 'smaps_raw', 'emaps', 'smaps');
+        load(fn_smaps, 'smaps');
     else
         fprintf('Estimating sensitivity maps via %s...\n', cfg.SENSEmethod);
         tic
             [smaps_raw, emaps] = makeSmaps(ksp_gre, cfg.SENSEmethod);
         toc
         smaps = process_smaps(smaps_raw, emaps, fov_gre, fov, ...
-            Nx_gre, Ny_gre, Nz_gre, Nx, Ny, Nz, cfg.Nvcoils, ...
+            Nx_gre, Ny_gre, Nz_gre, Nx, Ny, Nz, Nvcoils, ...
             cfg.SENSEmethod, cfg.threshold_mask);
-        save(fn_smaps, 'smaps_raw', 'emaps', 'smaps', '-v7.3');
+        save(fn_smaps, 'smaps_raw', 'emaps', 'smaps', 'Nvcoils', '-v7.3');
     end
-    clear smaps_raw emaps;
+    clear smaps_raw emaps fn_smaps_valid;
 
     % Uncomment if x-direction alignment between GRE and EPI is needed:
     % smaps = flip(smaps, 1);
@@ -125,7 +166,7 @@ ksp_cal = bart('whiten -n', ...
     reshape(permute(ksp_cal_raw, [1 3 2]), Nfid, [], 1, Ncoils), ksp_noise);
 clear ksp_cal_raw;
 
-ksp_cal = squeeze(bart(sprintf('ccapply -p %d', cfg.Nvcoils), ksp_cal, cc_matrix));
+ksp_cal = squeeze(bart(sprintf('ccapply -p %d', Nvcoils), ksp_cal, cc_matrix));
 ksp_cal = permute(ksp_cal, [1 3 2]);  % → [Nfid, Nvcoils, N_cal]
 
 % Load pre-computed k-space trajectory (cycles/cm) and apply gradient delay
@@ -143,7 +184,7 @@ kxe = interp1(1:Nfid, kxe, (1:Nfid) - 0.5 - cfg.delay, 'linear', 'extrap');
 
 % Reshape calibration data and estimate odd/even phase offsets
 % [a(1) = constant offset (rad), a(2) = linear term (rad/fov)]
-ksp_cal  = reshape(permute(ksp_cal, [1 3 2]), Nfid, ETL, [], cfg.Nvcoils);
+ksp_cal  = reshape(permute(ksp_cal, [1 3 2]), Nfid, ETL, [], Nvcoils);
 ETL_even = ETL - mod(ETL, 2);
 oephase_data = hmriutils.epi.rampsampepi2cart( ...
     ksp_cal(:, 1:ETL_even, :, :), kxo, kxe, Nx, fov(1)*100, 'nufft');
@@ -181,7 +222,7 @@ end
 % avoiding any need to hold the full time-series in memory.
 fprintf('Pre-allocating output file: %s\n', cfg.fn.recon);
 mf = matfile(cfg.fn.recon, 'Writable', true);
-mf.ksp_epi_zf = complex(zeros(Nx, Ny, Nz, cfg.Nvcoils, Nframes, 'single'));
+mf.ksp_epi_zf = complex(zeros(Nx, Ny, Nz, Nvcoils, Nframes, 'single'));
 
 fprintf('Processing %d frames (%d shots/frame)...\n', Nframes, shots_per_frame);
 tic
@@ -202,14 +243,14 @@ for frame = 1:Nframes
         ksp_noise);
     clear ksp_frame_raw;
 
-    % ── Coil-compress → [Nfid, cfg.Nvcoils, shots_per_frame] ──────────────
-    ksp_frame = squeeze(bart(sprintf('ccapply -p %d', cfg.Nvcoils), ksp_frame, cc_matrix));
+    % ── Coil-compress → [Nfid, Nvcoils, shots_per_frame] ─────────────────
+    ksp_frame = squeeze(bart(sprintf('ccapply -p %d', Nvcoils), ksp_frame, cc_matrix));
     ksp_frame = permute(ksp_frame, [1 3 2]);
 
     % ── Reshape → [Nfid, ETL, Nshots, Nvcoils] ────────────────────────────
     % Matches the layout the original produced via reshape+permute on the
     % full dataset before splitting across frames.
-    ksp_frame = reshape(ksp_frame, Nfid, cfg.Nvcoils, ETL, Nshots);
+    ksp_frame = reshape(ksp_frame, Nfid, Nvcoils, ETL, Nshots);
     ksp_frame = permute(ksp_frame, [1 3 4 2]);
 
     % ── Grid along kx ──────────────────────────────────────────────────────
@@ -220,7 +261,7 @@ for frame = 1:Nframes
     ksp_frame_cart = hmriutils.epi.epiphasecorrect(ksp_frame_cart, a);
 
     % ── Scatter readouts into zero-filled volume ───────────────────────────
-    ksp_frame_zf = zeros(Nx, Ny, Nz, cfg.Nvcoils, 'single');
+    ksp_frame_zf = zeros(Nx, Ny, Nz, Nvcoils, 'single');
     for shot_idx = 1:Nshots
         for echo = 1:ETL
             iy = schedules(frame, shot_idx, echo, 1);
@@ -249,7 +290,7 @@ NtestFrames = 6;
 % Stream only the test frames from disk; mf supports partial indexing
 ksp_test = mf.ksp_epi_zf(:, :, :, :, NframesDiscard + (1:NtestFrames));
 
-imgs_mc = zeros(Nx, Ny, Nz, cfg.Nvcoils, NtestFrames);
+imgs_mc = zeros(Nx, Ny, Nz, Nvcoils, NtestFrames);
 for frame = 1:NtestFrames
     imgs_mc(:, :, :, :, frame) = toppe.utils.ift3(ksp_test(:, :, :, :, frame));
 end

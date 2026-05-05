@@ -21,17 +21,18 @@ MATLAB pipeline for preprocessing and reconstructing randomly undersampled 3D-EP
 ```
 epi-preprocessing/
 ├── config.m          # All user-editable paths and tunable parameters (edit this first)
-├── params.m          # MRI system limits and sequence parameters (EPI + GRE)
 ├── main.m            # Stage 1 — raw data → zero-filled k-space volume
 ├── cg_sense.m        # Stage 2 — CG-SENSE (BART pics) reconstruction → NIfTI
 └── process_smaps.m   # Helper — mask, crop, and resize sensitivity maps
 ```
 
+`params.m` is not stored in the repository — it is loaded at runtime from `cfg.fn.params`, which points to the per-acquisition sequence directory in the data folder.
+
 ---
 
 ## Pipeline overview
 
-The pipeline runs in two sequential stages. Both scripts call `config.m` and `params.m` at startup; edit `config.m` to point at your data before running anything.
+The pipeline runs in two sequential stages. Both scripts call `config.m` and `params.m` (from the data directory) at startup; edit `config.m` to point at your data before running anything.
 
 ### Stage 1 — `main.m`
 
@@ -62,6 +63,8 @@ EPI data    ──► whiten ──► compress ──► grid (NUFFT) ──►
 
 **Key memory note:** `ksp_gre` and `ksp_epi_raw` are never in memory simultaneously. The output is written frame-by-frame using `matfile` so the full time series is never allocated.
 
+**Nvcoils selection:** `Nvcoils` is chosen automatically from the eigenvalue spectrum of the whitened GRE sample covariance. Components are retained until `cfg.cc_energy_thresh` of total variance is explained, subject to a minimum of `2R` (ensuring enough virtual coils for SENSE reconstruction).
+
 A quick sanity-check reconstruction (RSS or matched-filter SENSE) of the first 6 steady-state frames is displayed at the end via `interactive4D`.
 
 ---
@@ -75,7 +78,7 @@ zero-filled k-space  ──► (stream frame-by-frame)
                                   │
 sensitivity maps     ──────────── ┤
                                   ▼
-                          BART pics -l1 -r λ -i 100 -S -g
+                          BART pics -l1 -r λ -i 100 -S
                                   │
                                   ▼
                           img [Nx, Ny, Nz, Nframes]
@@ -90,7 +93,7 @@ The `-S` flag (strict SENSE) is used because the randomised EPI trajectory has n
 
 ### Sensitivity map helper — `process_smaps.m`
 
-Called from both `main.m` and `cg_sense.m`. Applies a three-step post-processing pipeline to the raw maps returned by `makeSmaps`:
+Called from both `main.m` and `cg_sense.m`. Applies a four-step post-processing pipeline to the raw maps returned by `makeSmaps`:
 
 1. **Support mask** — threshold the last ESPIRiT eigenvalue map; zero out background voxels.
 2. **z-crop** — trim the GRE volume symmetrically in z to match the EPI slab FOV. Assumes shared isocenter; mismatched isocenters will cause spatial misregistration.
@@ -112,7 +115,7 @@ Called from both `main.m` and `cg_sense.m`. Applies a three-step post-processing
 | Flip angle | Ernst (~13°) | Ernst (~4°) |
 | Acceleration R | 6 | — |
 | Echo train length | 75 | — |
-| Virtual coils | 18 | 18 |
+| Virtual coils | auto (≥ 2R) | — |
 | Regularisation λ | 0.005 | — |
 | B0 | 3 T | 3 T |
 
@@ -141,13 +144,15 @@ All tunable parameters live in `config.m`. Key fields:
 
 | Field | Default | Description |
 |---|---|---|
-| `cfg.Nvcoils` | 18 | Virtual coils after PCA compression |
-| `cfg.delay` | −1 | k-space center offset (samples); adjust if ghost artefacts appear |
+| `cfg.cc_energy_thresh` | 0.9 | Fraction of coil-data variance to retain; auto-selects Nvcoils from GRE eigenvalue spectrum with a 2R lower bound |
+| `cfg.delay` | −1 | k-space center offset (samples); adjust if ghost artifacts appear |
 | `cfg.SENSEmethod` | `'bart'` | `'bart'` (ESPIRiT) or `'pisco'` |
 | `cfg.threshold_mask` | 1 | ESPIRiT eigenvalue threshold for support mask |
 | `cfg.lamb` | 0.005 | L1 regularisation weight λ for BART `pics` |
-| `cfg.Nframes` | 387 | Frames to reconstruct in `cg_sense.m` |
+| `cfg.Nframes` | 30 | Frames to reconstruct in `cg_sense.m` |
 | `cfg.doSENSE` | `true` | `false` falls back to root-sum-of-squares |
+| `cfg.showEPIphaseDiff` | `true` | Plot odd/even phase difference during calibration |
+| `cfg.useOrchestra` | `true` | Use Orchestra library to read ScanArchive `.h5` files |
 
 ---
 

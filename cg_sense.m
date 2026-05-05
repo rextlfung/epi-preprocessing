@@ -10,11 +10,11 @@ Dependencies: BART (https://mrirecon.github.io/bart/)
 
 %% ── Configuration ────────────────────────────────────────────────────────────
 run('./config.m');   % Loads cfg struct
-run('./params.m');   % Loads sequence/system parameters
+run(cfg.fn.params);  % Loads MRI system + sequence parameters into workspace
 
 %% ── Derived filenames ────────────────────────────────────────────────────────
 % Separate recon data directory (GRE and EPI may live elsewhere from storage)
-datdir   = '/mnt/storage/rexfung/20260409tap/recon/';
+datdir   = strcat(cfg.datdir, 'recon/');
 fn_epi   = fullfile(datdir, sprintf('%s_epi_zf.mat',                   cfg.seqname));
 fn_gre   = fullfile(datdir, 'gre.mat');
 fn_smaps = fullfile(datdir, sprintf('smaps_%s.mat',                    cfg.SENSEmethod));
@@ -40,7 +40,7 @@ end
 %% ── Load or compute sensitivity maps ─────────────────────────────────────────
 if exist(fn_smaps, 'file')
     fprintf('Loading precomputed sensitivity maps from %s\n', fn_smaps);
-    load(fn_smaps, 'smaps_raw', 'emaps');
+    load(fn_smaps, 'smaps_raw', 'emaps', 'Nvcoils');
 else
     fprintf('Sensitivity maps not found. Estimating via %s...\n', cfg.SENSEmethod);
     try
@@ -49,15 +49,16 @@ else
         error('cg_sense: Cannot load GRE data ''%s''.\n  %s', fn_gre, ME.message);
     end
 
+    Nvcoils = size(ksp_gre, 4);  % infer from compressed GRE written by main.m
     tic
         [smaps_raw, emaps] = makeSmaps(ksp_gre, cfg.SENSEmethod);
     toc
-    save(fn_smaps, 'smaps_raw', 'emaps', '-v7.3');
+    save(fn_smaps, 'smaps_raw', 'emaps', 'Nvcoils', '-v7.3');
 end
 
 %% ── Process sensitivity maps ─────────────────────────────────────────────────
 smaps = process_smaps(smaps_raw, emaps, fov_gre, fov, ...
-    Nx_gre, Ny_gre, Nz_gre, Nx, Ny, Nz, cfg.Nvcoils, ...
+    Nx_gre, Ny_gre, Nz_gre, Nx, Ny, Nz, Nvcoils, ...
     cfg.SENSEmethod, cfg.threshold_mask);
 
 % Uncomment if x-direction alignment between GRE and EPI is needed:
