@@ -7,7 +7,7 @@ function smaps = process_smaps(smaps_raw, emaps, fov_gre, fov, ...
 %               SENSEmethod, threshold_mask)
 %
 %   This function consolidates the three-step sensitivity-map post-processing
-%   pipeline that was previously duplicated in main.m and cg_sense.m:
+%   pipeline that was previously duplicated in run_preprocessing.m and cg_sense.m:
 %     1. Build a support mask from the last eigenvalue map.
 %     2. Crop the z dimension to match the EPI field of view.
 %     3. Interpolate (x,y,z) to match the EPI acquisition grid.

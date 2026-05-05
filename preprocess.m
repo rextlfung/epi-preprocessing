@@ -1,9 +1,10 @@
+function preprocess(cfg)
 %{
-main.m — Load and preprocess randomised 3D EPI data.
+preprocess — Load and preprocess randomised 3D EPI data for one sequence.
 
 Pipeline
 ────────
-1.  Load configuration and sequence parameters.
+1.  Load sequence parameters.
 2.  Load noise scan  →  whitening matrix.
 3.  Load GRE data   →  whiten, PCA-compress, obtain compression matrix Vr.
 4.  Estimate or load sensitivity maps (uses ksp_gre, then frees it).
@@ -16,11 +17,13 @@ Pipeline
 Memory strategy: ksp_gre and ksp_epi_raw are never in memory simultaneously.
 Each large intermediate is cleared the moment it is no longer needed.
 
+Called from run_preprocessing.m (batch) or directly:
+    preprocess(set_seq_paths(cfg, 'caipi_ts'))
+
 Sequence design repository: https://github.com/rextlfung/rand3depi
 %}
 
 %% ── Dependencies ─────────────────────────────────────────────────────────────
-run('./config.m');   % Loads cfg struct (paths, tunable parameters)
 run(cfg.fn.params);  % Loads MRI system + sequence parameters into workspace
 
 for p = cfg.addpaths
@@ -38,7 +41,7 @@ fprintf('Loading noise scan...\n');
 try
     ksp_noise = single(orc_read(cfg.fn.noise));
 catch ME
-    error('main: Failed to read noise file ''%s''.\n  %s', cfg.fn.noise, ME.message);
+    error('preprocess: Failed to read noise file ''%s''.\n  %s', cfg.fn.noise, ME.message);
 end
 
 [Nfid, Ncoils, ~] = size(ksp_noise);
@@ -50,7 +53,7 @@ fprintf('Loading GRE data...\n');
 try
     ksp_gre_raw = single(orc_read(cfg.fn.gre));
 catch ME
-    error('main: Failed to read GRE file ''%s''.\n  %s', cfg.fn.gre, ME.message);
+    error('preprocess: Failed to read GRE file ''%s''.\n  %s', cfg.fn.gre, ME.message);
 end
 
 fprintf('  Max |Re(GRE)|: %g\n', max(real(ksp_gre_raw(:))));
@@ -83,20 +86,22 @@ Nvcoils     = min(Nvcoils, Ncoils);
 fprintf('  Energy threshold %.4f: %d components needed\n', cfg.cc_energy_thresh, Nvcoils_e);
 fprintf('  Lower bound 2R = %d  →  selected Nvcoils = %d\n', 2 * R, Nvcoils);
 
-figure;
-yyaxis left;
-semilogy(evals, 'b.-', 'MarkerSize', 10);
-ylabel('Eigenvalue (sample covariance)');
-yyaxis right;
-plot(cumvar * 100, 'r-');
-yline(cfg.cc_energy_thresh * 100, 'r--', sprintf('%.1f%%', cfg.cc_energy_thresh * 100));
-ylabel('Cumulative explained variance (%)');
-xline(Nvcoils, 'g-', sprintf('Nvcoils = %d', Nvcoils));
-if Nvcoils > Nvcoils_e
-    xline(Nvcoils_e, 'b--', sprintf('energy → %d', Nvcoils_e));
+if cfg.interactive
+    figure;
+    yyaxis left;
+    semilogy(evals, 'b.-', 'MarkerSize', 10);
+    ylabel('Eigenvalue (sample covariance)');
+    yyaxis right;
+    plot(cumvar * 100, 'r-');
+    yline(cfg.cc_energy_thresh * 100, 'r--', sprintf('%.1f%%', cfg.cc_energy_thresh * 100));
+    ylabel('Cumulative explained variance (%)');
+    xline(Nvcoils, 'g-', sprintf('Nvcoils = %d', Nvcoils));
+    if Nvcoils > Nvcoils_e
+        xline(Nvcoils_e, 'b--', sprintf('energy → %d', Nvcoils_e));
+    end
+    xlabel('Component index');
+    title(sprintf('Coil compression eigenvalue spectrum  (selected Nvcoils = %d)', Nvcoils));
 end
-xlabel('Component index');
-title(sprintf('Coil compression eigenvalue spectrum  (selected Nvcoils = %d)', Nvcoils));
 clear Nvcoils_e;
 
 cc_matrix = bart(sprintf('cc -p %d -A -M', Nvcoils), ksp_gre);
@@ -138,8 +143,9 @@ if cfg.doSENSE
     % smaps = flip(smaps, 1);
 end
 
-% plot smaps to check that they look reasonable
-interactive4D(abs(smaps));
+if cfg.interactive
+    interactive4D(abs(smaps));
+end
 
 % ksp_gre is no longer needed — free it before loading EPI
 clear ksp_gre;
@@ -150,11 +156,11 @@ fprintf('Loading calibration data...\n');
 try
     ksp_cal_raw = single(orc_read(cfg.fn.cal));
 catch ME
-    error('main: Failed to read calibration file ''%s''.\n  %s', cfg.fn.cal, ME.message);
+    error('preprocess: Failed to read calibration file ''%s''.\n  %s', cfg.fn.cal, ME.message);
 end
 
 assert(Nfid == size(ksp_cal_raw, 1), ...
-    'main: Calibration Nfid (%d) does not match noise Nfid (%d).', ...
+    'preprocess: Calibration Nfid (%d) does not match noise Nfid (%d).', ...
     size(ksp_cal_raw, 1), Nfid);
 fprintf('  Max |Re(cal)|: %g,  Max |Im(cal)|: %g\n', ...
     max(real(ksp_cal_raw(:))), max(imag(ksp_cal_raw(:))));
@@ -173,7 +179,7 @@ ksp_cal = permute(ksp_cal, [1 3 2]);  % → [Nfid, Nvcoils, N_cal]
 try
     load(cfg.fn.kxoe, 'kxo', 'kxe');
 catch ME
-    error('main: Could not load kxoe file ''%s''.\n  %s', cfg.fn.kxoe, ME.message);
+    error('preprocess: Could not load kxoe file ''%s''.\n  %s', cfg.fn.kxoe, ME.message);
 end
 kxo = kxo / 100;
 kxe = kxe / 100;
@@ -199,7 +205,7 @@ clear ksp_cal oephase_data;
 try
     load(cfg.fn.samp_log, 'schedules');
 catch ME
-    error('main: Could not load sampling log ''%s''.\n  %s', cfg.fn.samp_log, ME.message);
+    error('preprocess: Could not load sampling log ''%s''.\n  %s', cfg.fn.samp_log, ME.message);
 end
 [Nframes, Nshots, ETL, ~] = size(schedules);
 
@@ -208,13 +214,13 @@ fprintf('Opening EPI archive: %s\n', cfg.fn.epi);
 try
     epi_archive = GERecon('Archive.Load', cfg.fn.epi);
 catch ME
-    error('main: Failed to open EPI archive ''%s''.\n  %s', cfg.fn.epi, ME.message);
+    error('preprocess: Failed to open EPI archive ''%s''.\n  %s', cfg.fn.epi, ME.message);
 end
 
 shots_per_frame       = ETL * Nshots;
 total_shots_expected  = shots_per_frame * Nframes;
 if epi_archive.FrameCount < total_shots_expected
-    error('main: EPI archive has %d shots but %d expected (%d frames × %d shots/frame).', ...
+    error('preprocess: EPI archive has %d shots but %d expected (%d frames × %d shots/frame).', ...
         epi_archive.FrameCount, total_shots_expected, Nframes, shots_per_frame);
 end
 
@@ -268,7 +274,7 @@ for frame = 1:Nframes
             iz = schedules(frame, shot_idx, echo, 2);
 
             if any(ksp_frame_zf(:, iy, iz, :) ~= 0)
-                warning('main: Overwriting frame %d, ky=%d, kz=%d. Check schedule.', ...
+                warning('preprocess: Overwriting frame %d, ky=%d, kz=%d. Check schedule.', ...
                     frame, iy, iz);
             end
 
@@ -302,5 +308,7 @@ else
     img_final = squeeze(sqrt(sum(abs(imgs_mc).^2, 4)));   % Root-sum-of-squares
 end
 
-interactive4D(abs(permute(img_final,   [2 3 1 4])));
-interactive4D(angle(permute(img_final, [2 3 1 4])));
+if cfg.interactive
+    interactive4D(abs(permute(img_final,   [2 3 1 4])));
+    interactive4D(angle(permute(img_final, [2 3 1 4])));
+end

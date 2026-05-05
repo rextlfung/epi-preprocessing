@@ -2,7 +2,8 @@
 %
 % Edit this file to update paths and tunable parameters without touching
 % the pipeline scripts themselves.  Loaded via run('./config.m') at the
-% top of main.m and cg_sense.m.
+% top of run_preprocessing.m and cg_sense.m.  Per-sequence paths (cfg.fn.*, cfg.seqdir)
+% are not set here — they are populated per-iteration by set_seq_paths.m.
 %
 % All settings are stored as fields of the struct `cfg` to avoid polluting
 % the base workspace with ambiguous variable names.
@@ -14,32 +15,18 @@ cfg.addpaths = {
 };
 
 %% ── Data directory & file names ──────────────────────────────────────────────
-cfg.datdir  = '/StorageRAID/rexfung/20260501ball/';
-cfg.seqname = 'pd_acs';
-cfg.seqdir  = fullfile(cfg.datdir, sprintf('seqs/%s/', cfg.seqname));
-
-% Sequence name used to distinguish EPI scan variants (e.g. 'pd', 'caipi',
-% 'caipi_ts').  Inserted into all EPI-variant filenames below.
-
-cfg.fn.params   = fullfile(cfg.datdir, sprintf('seqs/%s/params.m', cfg.seqname));
-cfg.fn.gre      = fullfile(cfg.datdir, 'scanarchives/gre.h5');
-cfg.fn.cal      = fullfile(cfg.datdir, sprintf('scanarchives/%s_cal.h5',    cfg.seqname));
-cfg.fn.noise    = fullfile(cfg.datdir, sprintf('scanarchives/%s_noise.h5',  cfg.seqname));
-cfg.fn.epi      = fullfile(cfg.datdir, sprintf('scanarchives/%s_epi.h5',    cfg.seqname));
-cfg.fn.kxoe     = fullfile(cfg.seqdir, sprintf('kxoe%d.mat', 90)); % updated below
-cfg.fn.samp_log = fullfile(cfg.seqdir, 'samp_locs.mat');
-cfg.fn.recon    = fullfile(cfg.datdir, sprintf('recon/%s_epi_zf.mat', cfg.seqname));
-
-% kxoe filename depends on Nx; set after params.m is loaded if needed
-% cfg.fn.kxoe = fullfile(cfg.seqdir, sprintf('kxoe%d.mat', Nx));
+cfg.datdir   = '/StorageRAID/rexfung/20260501ball/';
+cfg.seqnames = {'caipi', 'caipi_ts', 'pd', 'pd_acs'};  % Cell array of sequence names to process.
+                                                        % Per-sequence paths are built by set_seq_paths.m.
+cfg.fn.gre   = fullfile(cfg.datdir, 'scanarchives/gre.h5');
 
 %% ── Coil parameters ─────────────────────────────────────────────────────────
-% Nvcoils is auto-selected in main.m from the whitened GRE eigenvalue spectrum.
+% Nvcoils is auto-selected in preprocess.m from the whitened GRE eigenvalue spectrum.
 % Components are kept until the cumulative explained variance reaches
 % cfg.cc_energy_thresh. Lower bound: max(selected, 2*R) for SENSE feasibility.
 cfg.cc_energy_thresh = 0.9;    % Retain 90% of total coil-data variance.
-                                % Lower → fewer virtual coils (faster, less SNR).
-                                % Higher → more virtual coils (more SNR, slower).
+                               % Lower → fewer virtual coils (faster, less SNR).
+                               % Higher → more virtual coils (more SNR, slower).
 
 %% ── EPI preprocessing ───────────────────────────────────────────────────────
 cfg.delay            = -1;    % Estimated k-space center offset (samples).
@@ -53,11 +40,15 @@ cfg.threshold_mask = 1;       % Voxels whose last eigenvalue exceeds this
                               % threshold are zeroed out in the support mask.
 
 %% ── CG-SENSE / PICS reconstruction ──────────────────────────────────────────
-cfg.lamb    = 0.005; % L1 regularisation weight (λ) passed to BART pics.
-                     % Larger → smoother, smaller → noisier but sharper.
-cfg.Nframes = 30;    % Number of temporal frames to reconstruct in cg_sense.m.
+cfg.lamb     = 0.005; % L1 regularisation weight (λ) passed to BART pics.
+                      % Larger → smoother, smaller → noisier but sharper.
+cfg.num_iter = 100;   % Max CG iterations for cg_sense() (run_cg_sense.m).
+                      % Matches the -i 100 flag used in run_bart.m.
+cfg.Nframes  = 30;    % Number of temporal frames to reconstruct.
 
 %% ── Pipeline options ─────────────────────────────────────────────────────────
 cfg.useOrchestra = true;   % Use Orchestra library to read ScanArchive files.
 cfg.doSENSE      = true;   % Estimate sensitivity maps and use SENSE combination.
                            % Set false to fall back to root-sum-of-squares.
+cfg.interactive  = false;  % Set false to suppress blocking interactive4D calls
+                           % and the eigenvalue figure (useful for batch runs).

@@ -1,101 +1,102 @@
-%{
-cg_sense.m — CG-SENSE reconstruction of all temporal frames.
+function [Img_recon] = cg_sense(KData_zf, Sens_maps, num_iter)
+    % CG_SENSE  Iterative conjugate-gradient SENSE reconstruction.
+    %
+    %   Img_recon = cg_sense(KData_zf, Sens_maps, num_iter) reconstructs a
+    %   single temporal frame from its zero-filled, multi-coil k-space using
+    %   the standard CG-SENSE algorithm (Pruessmann et al., MRM 2001).  The
+    %   implementation is generalised to arbitrary spatial dimensionality:
+    %   coils are assumed to occupy the last dimension while all preceding
+    %   dimensions are treated as spatial.
+    %
+    %   The cost function minimised is the unregularised least-squares:
+    %       min_x  || E x - b ||_2^2
+    %   where E = F_mask * S (masked FFT times coil maps) and b = KData_zf.
+    %
+    %   Inputs
+    %     KData_zf  - Zero-filled k-space  [Nx, Ny, Nz, ..., NumCoils]
+    %     Sens_maps - Coil sensitivity maps [Nx, Ny, Nz, ..., NumCoils]
+    %     num_iter  - Maximum CG iterations (stops early if residual < 1e-10)
+    %
+    %   Outputs
+    %     Img_recon - Reconstructed image   [Nx, Ny, Nz, ...]
+    %
+    %   References
+    %     Pruessmann et al., MRM 2001. https://doi.org/10.1002/mrm.1241
+    %     Conjugate gradient method: https://en.wikipedia.org/wiki/Conjugate_gradient_method
+    %
+    %   See also: run_cg_sense, process_smaps
 
-Reads the zero-filled k-space produced by main.m, loads (or recomputes)
-sensitivity maps, then runs iterative L1-regularised SENSE reconstruction
-via BART pics on every frame.  Output is written to a NIfTI file.
+    % Identify dimensions
+    num_dims = ndims(KData_zf);
+    coil_dim = num_dims; 
+    spatial_dims = 1:(num_dims - 1); 
+    
+    % Extract the sampling mask from just the first coil
+    % We use a dynamic cell array to index (:, :, ..., 1) for any dimension
+    idx = repmat({':'}, 1, num_dims);
+    idx{coil_dim} = 1;
+    Mask = abs(KData_zf(idx{:})) > 0;
+    
+    % Define the Forward Operator (E): Image -> k-space
+    E = @(X) Mask .* fftc(Sens_maps .* X, spatial_dims);
 
-Dependencies: BART (https://mrirecon.github.io/bart/)
-%}
+    % Define the Adjoint Operator (Eh): k-space -> Image
+    Eh = @(Y) sum(conj(Sens_maps) .* ifftc(Mask .* Y, spatial_dims), coil_dim);
 
-%% ── Configuration ────────────────────────────────────────────────────────────
-run('./config.m');   % Loads cfg struct
-run(cfg.fn.params);  % Loads MRI system + sequence parameters into workspace
+    % --- Initialization for Conjugate Gradient ---
+    B = Eh(KData_zf); 
+    X = zeros(size(B), 'like', B); 
+    
+    R = B; 
+    P = R; 
+    rsold = sum(abs(R(:)).^2);
+    
+    % --- Conjugate Gradient Loop ---
+    fprintf('Starting %dD CG-SENSE reconstruction...\n', length(spatial_dims));
 
-%% ── Derived filenames ────────────────────────────────────────────────────────
-% Separate recon data directory (GRE and EPI may live elsewhere from storage)
-datdir   = strcat(cfg.datdir, 'recon/');
-fn_epi   = fullfile(datdir, sprintf('%s_epi_zf.mat',                   cfg.seqname));
-fn_gre   = fullfile(datdir, 'gre.mat');
-fn_smaps = fullfile(datdir, sprintf('smaps_%s.mat',                    cfg.SENSEmethod));
-fn_recon = fullfile(datdir, sprintf('%s_recon_cgs_l1_r%.4f.nii',      cfg.seqname, cfg.lamb));
+    prev_len = 0;
+    for iter = 1:num_iter
+        EP = E(P);
+        EHEP = Eh(EP);
 
-%% ── BART reconstruction command ──────────────────────────────────────────────
-% -l1 : L1 wavelet regularisation
-% -r  : regularisation weight λ
-% -S  : strict SENSE (don't use eigenvalue weighting as there is no ACS region)
-% -i 100: instead of the default 30 (typically insufficient for R = 6)
-% -g : use GPU
-bart_cmd = sprintf('pics -l1 -r%f -i 100 -S', cfg.lamb);
-fprintf('BART command: %s\n', bart_cmd);
+        alpha = rsold / sum(real(conj(P(:)) .* EHEP(:)));
 
-%% ── Load zero-filled k-space ─────────────────────────────────────────────────
-fprintf('Loading EPI k-space from %s...\n', fn_epi);
-try
-    kdata = matfile(fn_epi);  % Use matfile to stream frames without loading all at once
-catch ME
-    error('cg_sense: Cannot open k-space file ''%s''.\n  %s', fn_epi, ME.message);
-end
+        X = X + alpha * P;
+        R = R - alpha * EHEP;
 
-%% ── Load or compute sensitivity maps ─────────────────────────────────────────
-if exist(fn_smaps, 'file')
-    fprintf('Loading precomputed sensitivity maps from %s\n', fn_smaps);
-    load(fn_smaps, 'smaps_raw', 'emaps', 'Nvcoils');
-else
-    fprintf('Sensitivity maps not found. Estimating via %s...\n', cfg.SENSEmethod);
-    try
-        load(fn_gre, 'ksp_gre');
-    catch ME
-        error('cg_sense: Cannot load GRE data ''%s''.\n  %s', fn_gre, ME.message);
+        rsnew = sum(abs(R(:)).^2);
+        msg = sprintf('Iteration %d/%d - Residual: %e', iter, num_iter, rsnew);
+        fprintf([repmat('\b', 1, prev_len), '%s'], msg);
+        prev_len = length(msg);
+
+        if sqrt(rsnew) < 1e-10
+            fprintf('\n  Converged early at iteration %d\n', iter);
+            break;
+        end
+
+        beta = rsnew / rsold;
+        P = R + beta * P;
+        rsold = rsnew;
     end
-
-    Nvcoils = size(ksp_gre, 4);  % infer from compressed GRE written by main.m
-    tic
-        [smaps_raw, emaps] = makeSmaps(ksp_gre, cfg.SENSEmethod);
-    toc
-    save(fn_smaps, 'smaps_raw', 'emaps', 'Nvcoils', '-v7.3');
+    fprintf('\n');
+    
+    Img_recon = X;
+    fprintf('Reconstruction complete.\n');
 end
 
-%% ── Process sensitivity maps ─────────────────────────────────────────────────
-smaps = process_smaps(smaps_raw, emaps, fov_gre, fov, ...
-    Nx_gre, Ny_gre, Nz_gre, Nx, Ny, Nz, Nvcoils, ...
-    cfg.SENSEmethod, cfg.threshold_mask);
-
-% Uncomment if x-direction alignment between GRE and EPI is needed:
-% smaps = flip(smaps, 1);
-
-%% ── Frame-by-frame reconstruction ───────────────────────────────────────────
-Nframes = cfg.Nframes;
-
-% Validate that the k-space file actually contains the requested frame count
-kdata_size = size(kdata, 'ksp_epi_zf');  % Does not load data
-if kdata_size(5) < Nframes
-    error('cg_sense: cfg.Nframes (%d) exceeds frames in file (%d).', ...
-        Nframes, kdata_size(5));
-end
-
-img = zeros(Nx, Ny, Nz, Nframes, 'single');
-
-fprintf('Reconstructing %d frames...\n', Nframes);
-tic
-for frame = 1:Nframes
-    fprintf('  Frame %d / %d\n', frame, Nframes);
-
-    % Stream one frame from disk to avoid loading the full time series
-    data = squeeze(kdata.ksp_epi_zf(:, :, :, :, frame));
-
-    try
-        img(:, :, :, frame) = bart(bart_cmd, data, smaps);
-    catch ME
-        warning('cg_sense: BART failed on frame %d — skipping.\n  %s', frame, ME.message);
+% --- Generalized N-Dimensional Centered FFT Helpers ---
+function Res = fftc(X, dims)
+    % Performs centered FFT iteratively along specified dimensions
+    Res = X;
+    for d = dims
+        Res = fftshift(fft(ifftshift(Res, d), [], d), d);
     end
 end
-toc
 
-%% ── Visualisation ────────────────────────────────────────────────────────────
-interactive4D(abs(img));
-return;   % Stop here during interactive use; NIfTI write below is manual
-
-%% ── Write NIfTI ─────────────────────────────────────────────────────────────
-fprintf('Writing reconstruction to %s\n', fn_recon);
-niftiwrite(abs(img), fn_recon);
+function Res = ifftc(X, dims)
+    % Performs centered IFFT iteratively along specified dimensions
+    Res = X;
+    for d = dims
+        Res = fftshift(ifft(ifftshift(Res, d), [], d), d);
+    end
+end
