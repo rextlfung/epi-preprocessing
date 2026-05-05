@@ -19,7 +19,7 @@ run('./config.m');
 
 fprintf('Batch: %d sequence(s) in %s\n', numel(cfg.seqnames), cfg.datdir);
 
-parfor i = 1:numel(cfg.seqnames)
+for i = 1:numel(cfg.seqnames)
     recon_sequence(cfg, cfg.seqnames{i}, i, numel(cfg.seqnames));
 end
 
@@ -92,16 +92,15 @@ end
 
 img = zeros(Nx, Ny, Nz, Nframes, 'single');
 
-fprintf('Reconstructing %d frames with %d CG iterations...\n', Nframes, cfg.num_iter);
+num_iter = cfg.num_iter;  % hoist scalar to avoid broadcasting cfg struct
+fprintf('Reconstructing %d frames with %d CG iterations...\n', Nframes, num_iter);
 tic
-for frame = 1:Nframes
-    fprintf('  Frame %d / %d\n', frame, Nframes);
-
+parfor frame = 1:Nframes
     % Stream one frame from disk to avoid loading the full time series
     data = squeeze(kdata.ksp_epi_zf(:, :, :, :, frame));
 
     try
-        img(:, :, :, frame) = cg_sense(data, smaps, cfg.num_iter);
+        img(:, :, :, frame) = cg_sense(data, smaps, num_iter);
     catch ME
         warning('run_cg_sense: cg_sense failed on frame %d — skipping.\n  %s', frame, ME.message);
     end
