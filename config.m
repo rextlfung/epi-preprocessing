@@ -15,9 +15,9 @@ cfg.addpaths = {
 };
 
 %% ── Data directory & file names ──────────────────────────────────────────────
-cfg.datdir   = '/StorageRAID/rexfung/20260501ball/';
-cfg.seqnames = {'caipi', 'caipi_ts', 'pd', 'pd_acs'};  % Cell array of sequence names to process.
-                                                        % Per-sequence paths are built by set_seq_paths.m.
+cfg.datdir   = '/StorageRAID/rexfung/20260409tap/';
+cfg.seqnames = {'caipi_ts', 'pd'};  % Cell array of sequence names to process.
+                              % Per-sequence paths are built by set_seq_paths.m.
 cfg.fn.gre   = fullfile(cfg.datdir, 'scanarchives/gre.h5');
 
 %% ── Coil parameters ─────────────────────────────────────────────────────────
@@ -50,5 +50,7 @@ cfg.Nframes  = 30;    % Number of temporal frames to reconstruct.
 cfg.useOrchestra = true;   % Use Orchestra library to read ScanArchive files.
 cfg.doSENSE      = true;   % Estimate sensitivity maps and use SENSE combination.
                            % Set false to fall back to root-sum-of-squares.
+cfg.useParfor    = true;   % Use parfor for parallel frame reconstruction.
+                           % Set false to run serially (easier debugging).
 cfg.interactive  = false;  % Set false to suppress blocking interactive4D calls
                            % and the eigenvalue figure (useful for batch runs).

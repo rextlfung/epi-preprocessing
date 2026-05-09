@@ -16,7 +16,7 @@ end
 
 fprintf('Batch: %d sequence(s) in %s\n', numel(cfg.seqnames), cfg.datdir);
 
-parfor i = 1:numel(cfg.seqnames)
+for i = 1:numel(cfg.seqnames)
     seqname = cfg.seqnames{i};
     fprintf('\n[%d/%d] %s\n', i, numel(cfg.seqnames), seqname);
     cfg_seq = set_seq_paths(cfg, seqname);

@@ -196,7 +196,7 @@ oephase_data = hmriutils.epi.rampsampepi2cart( ...
     ksp_cal(:, 1:ETL_even, :, :), kxo, kxe, Nx, fov(1)*100, 'nufft');
 oephase_data = ifftshift(ifft(fftshift(oephase_data), Nx, 1));
 [a, ~]       = hmriutils.epi.getoephase( ...
-    squeeze(mean(oephase_data, 3)), cfg.showEPIphaseDiff);
+    squeeze(mean(oephase_data, 3)), cfg.showEPIphaseDiff && cfg.interactive);
 fprintf('  Constant phase offset: %.4f rad\n',     a(1));
 fprintf('  Linear phase offset:   %.4f rad/fov\n', a(2));
 clear ksp_cal oephase_data;
@@ -208,6 +208,15 @@ catch ME
     error('preprocess: Could not load sampling log ''%s''.\n  %s', cfg.fn.samp_log, ME.message);
 end
 [Nframes, Nshots, ETL, ~] = size(schedules);
+
+% Rebuild the binary sampling mask from the schedule.
+% omegas(iy, iz, frame) = true iff that (ky, kz) location is acquired.
+iy_all     = reshape(schedules(:, :, :, 1), Nframes, []);  % [Nframes, Nshots*ETL]
+iz_all     = reshape(schedules(:, :, :, 2), Nframes, []);
+frame_idx  = repmat((1:Nframes)', 1, Nshots * ETL);
+omegas     = false(Ny, Nz, Nframes);
+omegas(sub2ind([Ny, Nz, Nframes], iy_all(:), iz_all(:), frame_idx(:))) = true;
+clear iy_all iz_all frame_idx;
 
 %% STEP 6 — EPI data  (frame-by-frame to bound memory)
 fprintf('Opening EPI archive: %s\n', cfg.fn.epi);
@@ -229,6 +238,7 @@ end
 fprintf('Pre-allocating output file: %s\n', cfg.fn.recon);
 mf = matfile(cfg.fn.recon, 'Writable', true);
 mf.ksp_epi_zf = complex(zeros(Nx, Ny, Nz, Nvcoils, Nframes, 'single'));
+mf.omegas     = omegas;
 
 fprintf('Processing %d frames (%d shots/frame)...\n', Nframes, shots_per_frame);
 tic
