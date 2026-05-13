@@ -15,8 +15,8 @@ cfg.addpaths = {
 };
 
 %% ── Data directory & file names ──────────────────────────────────────────────
-cfg.datdir   = '/StorageRAID/rexfung/20260409tap/';
-cfg.seqnames = {'caipi_ts', 'pd'};  % Cell array of sequence names to process.
+cfg.datdir   = '/StorageRAID/rexfung/20260501ball/';
+cfg.seqnames = {'caipi', 'caipi_ts', 'pd', 'pd_acs'};  % Cell array of sequence names to process.
                               % Per-sequence paths are built by set_seq_paths.m.
 cfg.fn.gre   = fullfile(cfg.datdir, 'scanarchives/gre.h5');
 
@@ -24,7 +24,7 @@ cfg.fn.gre   = fullfile(cfg.datdir, 'scanarchives/gre.h5');
 % Nvcoils is auto-selected in preprocess.m from the whitened GRE eigenvalue spectrum.
 % Components are kept until the cumulative explained variance reaches
 % cfg.cc_energy_thresh. Lower bound: max(selected, 2*R) for SENSE feasibility.
-cfg.cc_energy_thresh = 0.9;    % Retain 90% of total coil-data variance.
+cfg.cc_energy_thresh = 0.95;   % Retain 95% of total coil-data variance.
                                % Lower → fewer virtual coils (faster, less SNR).
                                % Higher → more virtual coils (more SNR, slower).
 
@@ -50,7 +50,7 @@ cfg.Nframes  = 30;    % Number of temporal frames to reconstruct.
 cfg.useOrchestra = true;   % Use Orchestra library to read ScanArchive files.
 cfg.doSENSE      = true;   % Estimate sensitivity maps and use SENSE combination.
                            % Set false to fall back to root-sum-of-squares.
-cfg.useParfor    = true;   % Use parfor for parallel frame reconstruction.
+cfg.useParfor    = false;  % Use parfor for parallel frame reconstruction.
                            % Set false to run serially (easier debugging).
 cfg.interactive  = false;  % Set false to suppress blocking interactive4D calls
                            % and the eigenvalue figure (useful for batch runs).
