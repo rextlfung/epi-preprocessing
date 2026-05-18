@@ -20,12 +20,15 @@ MATLAB pipeline for preprocessing and reconstructing randomly undersampled 3D-EP
 
 ```
 epi-preprocessing/
-├── config.m           # All user-editable paths and tunable parameters (edit this first)
-├── run_preprocessing.m             # Batch driver — calls preprocess() for each sequence in cfg.seqnames
-├── preprocess.m       # Stage 1 — raw data → zero-filled k-space volume (one sequence)
-├── cg_sense.m         # Stage 2 — CG-SENSE (BART pics) reconstruction → NIfTI
-├── set_seq_paths.m    # Helper — populate per-sequence cfg.seqname / cfg.fn.* fields
-└── process_smaps.m    # Helper — mask, crop, and resize sensitivity maps
+├── config.m              # All user-editable paths and tunable parameters (edit this first)
+├── run_preprocessing.m   # Batch driver — calls preprocess() for each sequence in cfg.seqnames
+├── preprocess.m          # Stage 1 — raw data → zero-filled k-space volume (one sequence)
+├── run_bart.m            # Stage 2 driver — L1-SENSE reconstruction via BART pics
+├── run_cg_sense.m        # Stage 2 driver — CG-SENSE reconstruction (no BART dependency)
+├── recon_frames.m        # Stage 2 core — shared frame-loop, smaps loading, NIfTI write
+├── cg_sense.m            # CG-SENSE solver (unregularised conjugate gradient)
+├── set_seq_paths.m       # Helper — populate per-sequence cfg.seqname / cfg.fn.* fields
+└── process_smaps.m       # Helper — mask, crop, and resize sensitivity maps
 ```
 
 `params.m` is not stored in the repository — it is loaded at runtime from `cfg.fn.params`, which points to the per-acquisition sequence directory in the data folder.
@@ -65,37 +68,42 @@ EPI data    ──► whiten ──► compress ──► grid (NUFFT) ──►
 
 **Key memory note:** `ksp_gre` and `ksp_epi_raw` are never in memory simultaneously. The output is written frame-by-frame using `matfile` so the full time series is never allocated.
 
+**Checkpoint/resume:** `last_completed_frame` is written to the output matfile after each frame. If `preprocess.m` is interrupted and restarted, it detects the checkpoint and skips already-completed frames.
+
 **Nvcoils selection:** `Nvcoils` is chosen automatically from the eigenvalue spectrum of the whitened GRE sample covariance. Components are retained until `cfg.cc_energy_thresh` of total variance is explained, subject to a minimum of `2R` (ensuring enough virtual coils for SENSE reconstruction).
 
 A quick sanity-check reconstruction (RSS or matched-filter SENSE) of the first 6 steady-state frames is displayed at the end via `interactive4D`.
 
 ---
 
-### Stage 2 — `cg_sense.m`
+### Stage 2 — `run_bart.m` / `run_cg_sense.m`
 
-Reconstructs every temporal frame from the zero-filled k-space produced by `run_preprocessing.m` using L1-regularised SENSE via BART `pics`.
+Both drivers read the zero-filled k-space produced by Stage 1 and delegate to the shared `recon_frames.m`, passing a per-frame reconstruction function handle. Output is one NIfTI per sequence with voxel sizes and TR embedded in the header.
 
 ```
-zero-filled k-space  ──► (stream frame-by-frame)
+zero-filled k-space  ──► (load all frames, then parfor)
                                   │
 sensitivity maps     ──────────── ┤
                                   ▼
-                          BART pics -l1 -r λ -i 100 -S
+                   run_bart.m: BART pics -l1 -r λ -i 100 -S
+                   run_cg_sense.m: unregularised CG-SENSE
                                   │
                                   ▼
                           img [Nx, Ny, Nz, Nframes]
                                   │
                                   ▼
-                          interactive4D  →  NIfTI write
+                          NIfTI write (with spatial metadata)
 ```
 
-The `-S` flag (strict SENSE) is used because the randomised EPI trajectory has no ACS region. Iteration count is set to 100 (vs. the BART default of 30) to ensure convergence at R = 6.
+**`run_bart.m`** uses BART `pics` with L1 regularisation. The `-S` flag (strict SENSE) is required because the randomised EPI trajectory has no ACS region; iteration count is 100 to ensure convergence at R = 6. Output filename: `<seqname>_recon_bart_l1_r<λ>.nii`.
+
+**`run_cg_sense.m`** uses the built-in `cg_sense.m` solver — a bare conjugate-gradient SENSE loop with no regularisation. No BART dependency. Output filename: `<seqname>_recon_cgs_i<N>.nii`.
 
 ---
 
 ### Sensitivity map helper — `process_smaps.m`
 
-Called from both `preprocess.m` and `cg_sense.m`. Applies a four-step post-processing pipeline to the raw maps returned by `makeSmaps`:
+Called from `preprocess.m` (Stage 1) and, as a fallback, from `recon_frames.m` (Stage 2). Applies a four-step post-processing pipeline to the raw maps returned by `makeSmaps`:
 
 1. **Support mask** — threshold the last ESPIRiT eigenvalue map; zero out background voxels.
 2. **z-crop** — trim the GRE volume symmetrically in z to match the EPI slab FOV. Assumes shared isocenter; mismatched isocenters will cause spatial misregistration.
@@ -137,12 +145,15 @@ Called from both `preprocess.m` and `cg_sense.m`. Applies a four-step post-proce
    ```
    Set `cfg.interactive = false` to suppress blocking visualisation windows during batch runs.
 4. Inspect the sanity-check reconstruction. Adjust `cfg.delay` (k-space center offset) and `cfg.threshold_mask` if needed.
-5. Run Stage 2:
+5. Run Stage 2 (choose one):
    ```matlab
-   run('cg_sense.m')
+   run('run_bart.m')      % L1-regularised SENSE via BART pics
+   run('run_cg_sense.m')  % Unregularised CG-SENSE, no BART needed
    ```
-   `cg_sense.m` processes `cfg.seqnames{1}` by default; edit `cfg.seqnames{1}` or call `set_seq_paths` manually to target a different sequence.
-6. The final reconstruction is saved as a NIfTI to `<datdir>/recon/<seqname>_recon_cgs_l1_r<λ>.nii`.
+   Both scripts process all sequences in `cfg.seqnames`.
+6. The final reconstruction is saved as a NIfTI with embedded voxel sizes and TR:
+   - BART: `<datdir>/recon/<seqname>_recon_bart_l1_r<λ>.nii`
+   - CG-SENSE: `<datdir>/recon/<seqname>_recon_cgs_i<N>.nii`
 
 ---
 
@@ -153,12 +164,12 @@ All tunable parameters live in `config.m`. Key fields:
 | Field | Default | Description |
 |---|---|---|
 | `cfg.seqnames` | `{'caipi_ts'}` | Cell array of sequence names to process; add entries for batch runs |
-| `cfg.cc_energy_thresh` | 0.9 | Fraction of coil-data variance to retain; auto-selects Nvcoils from GRE eigenvalue spectrum with a 2R lower bound |
+| `cfg.cc_energy_thresh` | 0.95 | Fraction of coil-data variance to retain; auto-selects Nvcoils from GRE eigenvalue spectrum with a 2R lower bound |
 | `cfg.delay` | −1 | k-space center offset (samples); adjust if ghost artifacts appear |
 | `cfg.SENSEmethod` | `'bart'` | `'bart'` (ESPIRiT) or `'pisco'` |
 | `cfg.threshold_mask` | 1 | ESPIRiT eigenvalue threshold for support mask |
 | `cfg.lamb` | 0.005 | L1 regularisation weight λ for BART `pics` |
-| `cfg.Nframes` | 30 | Frames to reconstruct in `cg_sense.m` |
+| `cfg.Nframes` | 30 | Maximum frames to reconstruct in Stage 2; defaults to all available frames in the matfile if the file contains fewer |
 | `cfg.doSENSE` | `true` | `false` falls back to root-sum-of-squares |
 | `cfg.interactive` | `true` | `false` suppresses blocking `interactive4D` windows and eigenvalue figure |
 | `cfg.showEPIphaseDiff` | `true` | Plot odd/even phase difference during calibration |

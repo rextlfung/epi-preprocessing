@@ -10,10 +10,6 @@ Edit config.m to change sequences or parameters.
 
 run('./config.m');   % Loads session-level cfg (seqnames, datdir, gre, params...)
 
-for p = cfg.addpaths
-    addpath(p{1});
-end
-
 fprintf('Batch: %d sequence(s) in %s\n', numel(cfg.seqnames), cfg.datdir);
 
 for i = 1:numel(cfg.seqnames)

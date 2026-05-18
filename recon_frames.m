@@ -25,8 +25,18 @@ end
 
 %% Load or compute sensitivity maps
 if exist(fn_smaps, 'file')
-    fprintf('Loading precomputed sensitivity maps from %s\n', fn_smaps);
-    load(fn_smaps, 'smaps_raw', 'emaps', 'Nvcoils');
+    smaps_check = whos('-file', fn_smaps, 'smaps');
+    if ~isempty(smaps_check)
+        fprintf('Loading precomputed sensitivity maps from %s\n', fn_smaps);
+        load(fn_smaps, 'smaps', 'Nvcoils');
+    else
+        fprintf('Loading raw smaps from %s (reprocessing)...\n', fn_smaps);
+        load(fn_smaps, 'smaps_raw', 'emaps', 'Nvcoils');
+        smaps = process_smaps(smaps_raw, emaps, fov_gre, fov, ...
+            Nx_gre, Ny_gre, Nz_gre, Nx, Ny, Nz, Nvcoils, ...
+            cfg.SENSEmethod, cfg.threshold_mask);
+        clear smaps_raw emaps;
+    end
 else
     fprintf('Sensitivity maps not found. Estimating via %s...\n', cfg.SENSEmethod);
     try
@@ -39,23 +49,21 @@ else
     tic
         [smaps_raw, emaps] = makeSmaps(ksp_gre, cfg.SENSEmethod);
     toc
-    save(fn_smaps, 'smaps_raw', 'emaps', 'Nvcoils', '-v7.3');
+    smaps = process_smaps(smaps_raw, emaps, fov_gre, fov, ...
+        Nx_gre, Ny_gre, Nz_gre, Nx, Ny, Nz, Nvcoils, ...
+        cfg.SENSEmethod, cfg.threshold_mask);
+    save(fn_smaps, 'smaps_raw', 'emaps', 'smaps', 'Nvcoils', '-v7.3');
 end
-
-smaps = process_smaps(smaps_raw, emaps, fov_gre, fov, ...
-    Nx_gre, Ny_gre, Nz_gre, Nx, Ny, Nz, Nvcoils, ...
-    cfg.SENSEmethod, cfg.threshold_mask);
 
 % Uncomment if x-direction alignment between GRE and EPI is needed:
 % smaps = flip(smaps, 1);
 
 %% Frame-by-frame reconstruction
-Nframes    = cfg.Nframes;
-kdata_size = size(kdata, 'ksp_epi_zf');
-if kdata_size(5) < Nframes
-    fprintf('ERROR: cfg.Nframes (%d) exceeds frames in file (%d). Skipping...\n', ...
-        Nframes, kdata_size(5));
-    return;
+kdata_size    = size(kdata, 'ksp_epi_zf');
+Nframes_avail = kdata_size(5);
+Nframes       = min(cfg.Nframes, Nframes_avail);
+if Nframes < Nframes_avail
+    fprintf('Reconstructing %d of %d available frames (cfg.Nframes cap).\n', Nframes, Nframes_avail);
 end
 
 img = zeros(Nx, Ny, Nz, Nframes, 'single');
@@ -80,4 +88,9 @@ end
 
 fprintf('Writing reconstruction to %s\n', fn_recon);
 niftiwrite(abs(img), fn_recon);
+info = niftiinfo(fn_recon);
+info.PixelDimensions = [[fov(1)/Nx, fov(2)/Ny, fov(3)/Nz] * 1e3, volumeTR];  % mm, s
+info.SpaceUnits = 'Millimeter';
+info.TimeUnits  = 'Second';
+niftiwrite(abs(img), fn_recon, info);
 end

@@ -54,15 +54,19 @@ Stage 1 is compute- and I/O-heavy (whitening, coil compression, NUFFT gridding).
 
 `ksp_gre` and `ksp_epi_raw` are never in memory simultaneously — `ksp_gre` is cleared before EPI data is loaded. The zero-filled output `ksp_epi_zf` is written frame-by-frame using `matfile` so the full time series is never allocated. Stage 2 scripts use `matfile` to stream frames during reconstruction for the same reason.
 
+`preprocess.m` writes `last_completed_frame` to the output matfile after each frame. On restart, it detects this checkpoint and skips already-processed frames instead of starting over.
+
 ### Coil compression
 
 `Nvcoils` is selected automatically from the eigenvalue spectrum of the whitened GRE covariance: components are kept until cumulative variance ≥ `cfg.cc_energy_thresh`, subject to a minimum of `2R`. The compression matrix (`cc_matrix`) is computed once from GRE and applied consistently to calibration and EPI data via BART `ccapply`.
 
-Sensitivity maps are cached in `recon/smaps_<method>.mat`. They are recomputed only if the file is missing or the stored `Nvcoils` does not match the current run.
+Sensitivity maps are cached in `recon/smaps_<method>.mat`. `preprocess.m` saves the fully post-processed `smaps` variable (alongside `smaps_raw` and `emaps`). `recon_frames.m` loads `smaps` directly when it is present, skipping `process_smaps`; it falls back to reprocessing `smaps_raw`/`emaps` for legacy cache files that predate this convention. Smaps are recomputed from scratch only when the file is missing or `Nvcoils` has changed.
 
 ### Parallelism
 
 Both Stage 2 scripts use `parfor (frame = 1:Nframes, Nworkers)`. `Nworkers` is set to `Inf` (full pool) when `cfg.useParfor = true`, or `0` (serial) when false. The full k-space array is loaded before the `parfor` loop so workers receive array slices rather than a `matfile` handle.
+
+`cfg.Nframes` acts as an upper cap: `recon_frames.m` reconstructs `min(cfg.Nframes, actual_frames_in_file)` frames. NIfTI output includes voxel sizes (from `fov/N × 1000` mm) and `volumeTR` (seconds) in the header, sourced from `params.m`.
 
 ### Interactive / batch mode
 

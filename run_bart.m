@@ -21,7 +21,7 @@ for i = 1:numel(cfg.seqnames)
     fprintf('BART command: %s\n', bart_cmd);
 
     datdir   = strcat(cfg_seq.datdir, 'recon/');
-    fn_recon = fullfile(datdir, sprintf('%s_recon_cgs_l1_r%.4f.nii', cfg_seq.seqname, cfg_seq.lamb));
+    fn_recon = fullfile(datdir, sprintf('%s_recon_bart_l1_r%.4f.nii', cfg_seq.seqname, cfg_seq.lamb));
 
     recon_frames(cfg_seq, fn_recon, @(data, smaps) bart(bart_cmd, data, smaps));
 end

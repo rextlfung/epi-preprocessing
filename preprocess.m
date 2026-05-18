@@ -233,16 +233,32 @@ if epi_archive.FrameCount < total_shots_expected
         epi_archive.FrameCount, total_shots_expected, Nframes, shots_per_frame);
 end
 
-% Pre-allocate the output file so each frame can be written immediately,
-% avoiding any need to hold the full time-series in memory.
-fprintf('Pre-allocating output file: %s\n', cfg.fn.recon);
-mf = matfile(cfg.fn.recon, 'Writable', true);
-mf.ksp_epi_zf = complex(zeros(Nx, Ny, Nz, Nvcoils, Nframes, 'single'));
-mf.omegas     = omegas;
+% Open or create the output matfile. If a prior run left a checkpoint,
+% skip already-completed frames rather than starting over.
+if exist(cfg.fn.recon, 'file')
+    mf = matfile(cfg.fn.recon, 'Writable', true);
+    mf_vars = whos(mf);
+    if ismember('last_completed_frame', {mf_vars.name})
+        start_frame = mf.last_completed_frame + 1;
+        fprintf('Resuming from frame %d (checkpoint found at frame %d).\n', ...
+            start_frame, start_frame - 1);
+    else
+        start_frame = 1;
+        fprintf('Pre-allocating output file: %s\n', cfg.fn.recon);
+        mf.ksp_epi_zf = complex(zeros(Nx, Ny, Nz, Nvcoils, Nframes, 'single'));
+        mf.omegas     = omegas;
+    end
+else
+    fprintf('Pre-allocating output file: %s\n', cfg.fn.recon);
+    mf = matfile(cfg.fn.recon, 'Writable', true);
+    mf.ksp_epi_zf = complex(zeros(Nx, Ny, Nz, Nvcoils, Nframes, 'single'));
+    mf.omegas     = omegas;
+    start_frame = 1;
+end
 
-fprintf('Processing %d frames (%d shots/frame)...\n', Nframes, shots_per_frame);
+fprintf('Processing frames %d-%d (%d shots/frame)...\n', start_frame, Nframes, shots_per_frame);
 tic
-for frame = 1:Nframes
+for frame = start_frame:Nframes
     fprintf('  Frame %d / %d\n', frame, Nframes);
 
     % ── Read ETL*Nshots consecutive readouts for this volumetric frame ─────
@@ -276,24 +292,23 @@ for frame = 1:Nframes
     % ── Odd/even phase correction ───────────────────────────────────────────
     ksp_frame_cart = hmriutils.epi.epiphasecorrect(ksp_frame_cart, a);
 
-    % ── Scatter readouts into zero-filled volume ───────────────────────────
-    ksp_frame_zf = zeros(Nx, Ny, Nz, Nvcoils, 'single');
-    for shot_idx = 1:Nshots
-        for echo = 1:ETL
-            iy = schedules(frame, shot_idx, echo, 1);
-            iz = schedules(frame, shot_idx, echo, 2);
-
-            if any(ksp_frame_zf(:, iy, iz, :) ~= 0)
-                warning('preprocess: Overwriting frame %d, ky=%d, kz=%d. Check schedule.', ...
-                    frame, iy, iz);
-            end
-
-            ksp_frame_zf(:, iy, iz, :) = ksp_frame_cart(:, echo, shot_idx, :);
-        end
+    % ── Scatter readouts into zero-filled volume (vectorized) ─────────────
+    % schedules(frame,:,:,1/2) is [Nshots, ETL]; column-major reshape gives
+    % shot-outer order, matching permute([1 3 2 4]) on ksp_frame_cart.
+    iy_frame = reshape(schedules(frame, :, :, 1), 1, []);  % [1, Nshots*ETL]
+    iz_frame = reshape(schedules(frame, :, :, 2), 1, []);
+    lin_idx  = sub2ind([Ny, Nz], iy_frame, iz_frame);
+    if numel(unique(lin_idx)) < numel(lin_idx)
+        warning('preprocess: Frame %d has duplicate (ky, kz) entries. Check schedule.', frame);
     end
+    ksp_flat     = reshape(permute(ksp_frame_cart, [1 3 2 4]), Nx, Nshots*ETL, Nvcoils);
+    ksp_frame_zf = zeros(Nx, Ny*Nz, Nvcoils, 'single');
+    ksp_frame_zf(:, lin_idx, :) = ksp_flat;
+    ksp_frame_zf = reshape(ksp_frame_zf, Nx, Ny, Nz, Nvcoils);
 
     % ── Write this frame to disk immediately ───────────────────────────────
     mf.ksp_epi_zf(:, :, :, :, frame) = single(ksp_frame_zf);
+    mf.last_completed_frame = frame;
 end
 toc
 
