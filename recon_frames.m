@@ -71,17 +71,6 @@ Nworkers = 0;
 if cfg.useParfor; Nworkers = Inf; end
 ksp = kdata.ksp_epi_zf(:, :, :, :, 1:Nframes);
 
-%% Quick RSS reconstruction (zero-filled, no SENSE)
-if cfg.interactive
-    imgs_mc = zeros(Nx, Ny, Nz, Nvcoils, Nframes, 'single');
-    for frame = 1:Nframes
-        imgs_mc(:, :, :, :, frame) = toppe.utils.ift3(squeeze(ksp(:, :, :, :, frame)));
-    end
-    img_rss = squeeze(sqrt(sum(abs(imgs_mc).^2, 4)));
-    interactive4D(abs(permute(img_rss, [2 3 1 4])));
-    clear imgs_mc img_rss;
-end
-
 fprintf('Reconstructing %d frames...\n', Nframes);
 tic
 parfor (frame = 1:Nframes, Nworkers)
