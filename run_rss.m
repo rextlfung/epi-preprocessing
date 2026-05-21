@@ -12,6 +12,7 @@ Dependencies: recon_frames.m, toppe.utils.ift3
 
 %% ── Configuration ────────────────────────────────────────────────────────────
 run('./config.m');
+for p = cfg.addpaths; addpath(p{1}); end
 
 fprintf('Batch: %d sequence(s) in %s\n', numel(cfg.seqnames), cfg.datdir);
 
@@ -22,7 +23,11 @@ for i = 1:numel(cfg.seqnames)
     datdir   = strcat(cfg_seq.datdir, 'recon/');
     fn_recon = fullfile(datdir, sprintf('%s_recon_rss.nii', cfg_seq.seqname));
 
-    recon_frames(cfg_seq, fn_recon, @(data, ~) sqrt(sum(abs(toppe.utils.ift3(data)).^2, 4)));
+    try
+        recon_frames(cfg_seq, fn_recon, @(data, ~) sqrt(sum(abs(toppe.utils.ift3(data)).^2, 4)));
+    catch ME
+        fprintf('ERROR [%s]: %s\nSkipping...\n', cfg_seq.seqname, ME.message);
+    end
 end
 
 fprintf('\nBatch complete.\n');

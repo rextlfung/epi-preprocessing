@@ -23,7 +23,11 @@ for i = 1:numel(cfg.seqnames)
     datdir   = strcat(cfg_seq.datdir, 'recon/');
     fn_recon = fullfile(datdir, sprintf('%s_recon_bart_l1_r%.4f_tv_r%.4f.nii', cfg_seq.seqname, cfg_seq.lamb_l1, cfg_seq.lamb_tv));
 
-    recon_frames(cfg_seq, fn_recon, @(data, smaps) bart(bart_cmd, data, smaps));
+    try
+        recon_frames(cfg_seq, fn_recon, @(data, smaps) bart(bart_cmd, data, smaps));
+    catch ME
+        fprintf('ERROR [%s]: %s\nSkipping...\n', cfg_seq.seqname, ME.message);
+    end
 end
 
 fprintf('\nBatch complete.\n');

@@ -12,11 +12,12 @@
 cfg.addpaths = {
     '/home/rexfung/github/orchestra'   % Reading ScanArchives (GE private)
     '/home/rexfung/github/hmriutils'   % EPI odd/even ghost correction
+    '/home/rexfung/github/toppe'       % TOPPE utilities (ift3, etc.)
 };
 
 %% ── Data directory & file names ──────────────────────────────────────────────
-cfg.datdir   = '/StorageRAID/rexfung/20260501ball/';
-cfg.seqnames = {'caipi', 'caipi_ts', 'pd', 'pd_acs'};  % Cell array of sequence names to process.
+cfg.datdir   = '/StorageRAID/rexfung/20260409tap/';
+cfg.seqnames = {'caipi', 'caipi_ts', 'pd'};  % Cell array of sequence names to process.
                               % Per-sequence paths are built by set_seq_paths.m.
 cfg.fn.gre   = fullfile(cfg.datdir, 'scanarchives/gre.h5');
 
@@ -24,7 +25,7 @@ cfg.fn.gre   = fullfile(cfg.datdir, 'scanarchives/gre.h5');
 % Nvcoils is auto-selected in preprocess.m from the whitened GRE eigenvalue spectrum.
 % Components are kept until the cumulative explained variance reaches
 % cfg.cc_energy_thresh. Lower bound: max(selected, 2*R) for SENSE feasibility.
-cfg.cc_energy_thresh = 0.95;   % Retain 95% of total coil-data variance.
+cfg.cc_energy_thresh = 0.9;    % Retained portion of total coil-data variance.
                                % Lower → fewer virtual coils (faster, less SNR).
                                % Higher → more virtual coils (more SNR, slower).
 
@@ -46,7 +47,7 @@ cfg.lamb_tv  = 0.005; % Total-variation regularisation weight for BART pics (-R 
                       % Applied over spatial dims only (per-frame recon has no temporal dim).
 cfg.num_iter = 100;   % Max CG iterations for cg_sense() (run_cg_sense.m).
                       % Matches the -i 100 flag used in run_bart.m.
-cfg.Nframes  = 30;    % Number of temporal frames to reconstruct.
+cfg.Nframes  = Inf;   % Number of temporal frames to reconstruct. (Inf == all frames).
 
 %% ── Pipeline options ─────────────────────────────────────────────────────────
 cfg.useOrchestra = true;   % Use Orchestra library to read ScanArchive files.

@@ -19,8 +19,7 @@ fprintf('Loading EPI k-space from %s...\n', fn_epi);
 try
     kdata = matfile(fn_epi);
 catch ME
-    fprintf('ERROR: Cannot open k-space file ''%s''.\n  %s\nSkipping...\n', fn_epi, ME.message);
-    return;
+    error('recon_frames: cannot open k-space file ''%s'': %s', fn_epi, ME.message);
 end
 
 %% Load or compute sensitivity maps
@@ -42,8 +41,7 @@ else
     try
         load(fn_gre, 'ksp_gre');
     catch ME
-        fprintf('ERROR: Cannot load GRE data ''%s''.\n  %s\nSkipping...\n', fn_gre, ME.message);
-        return;
+        error('recon_frames: cannot load GRE data ''%s'': %s', fn_gre, ME.message);
     end
     Nvcoils = size(ksp_gre, 4);
     tic
@@ -74,7 +72,7 @@ ksp = kdata.ksp_epi_zf(:, :, :, :, 1:Nframes);
 fprintf('Reconstructing %d frames...\n', Nframes);
 tic
 parfor (frame = 1:Nframes, Nworkers)
-    data = squeeze(ksp(:, :, :, :, frame));
+    data = ksp(:, :, :, :, frame);
     try
         img(:, :, :, frame) = recon_fn(data, smaps);
     catch ME
@@ -83,13 +81,19 @@ parfor (frame = 1:Nframes, Nworkers)
 end
 toc
 
+if ~any(img(:))
+    warning('recon_frames: all output frames are zero — recon_fn may have failed on every frame.');
+end
+
 if cfg.interactive
     interactive4D(abs(img));
 end
 
 fprintf('Writing reconstruction to %s\n', fn_recon);
-niftiwrite(abs(img), fn_recon);
-info = niftiinfo(fn_recon);
+fn_tmp = [tempname() '.nii'];
+niftiwrite(abs(img), fn_tmp);
+info = niftiinfo(fn_tmp);
+delete(fn_tmp);
 info.PixelDimensions = [[fov(1)/Nx, fov(2)/Ny, fov(3)/Nz] * 1e3, volumeTR];  % mm, s
 info.SpaceUnits = 'Millimeter';
 info.TimeUnits  = 'Second';
