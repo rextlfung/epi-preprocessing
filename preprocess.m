@@ -312,28 +312,19 @@ for frame = start_frame:Nframes
 end
 toc
 
+%% Discard transient frames before steady state
+ksp_size = size(mf, 'ksp_epi_zf');
+if NframesDiscard > 0 && ksp_size(5) == Nframes
+    fprintf('Discarding %d transient frame(s) (discardDuration = %.1fs)...\n', NframesDiscard, discardDuration);
+    tmp = mf.ksp_epi_zf(:, :, :, :, NframesDiscard+1:Nframes);
+    mf.ksp_epi_zf = tmp;
+    clear tmp;
+    tmp = mf.omegas(:, :, NframesDiscard+1:Nframes);
+    mf.omegas = tmp;
+    clear tmp;
+    fprintf('  Kept %d frames (discarded %d leading transients).\n', Nframes - NframesDiscard, NframesDiscard);
+end
+
 % ksp_noise and cc_matrix are no longer needed
 clear ksp_noise cc_matrix;
 fprintf('EPI processing complete. Output: %s\n', cfg.fn.recon);
-
-%% STEP 7 — Quick sanity-check reconstruction
-NtestFrames = 6;
-% Stream only the test frames from disk; mf supports partial indexing
-ksp_test = mf.ksp_epi_zf(:, :, :, :, NframesDiscard + (1:NtestFrames));
-
-imgs_mc = zeros(Nx, Ny, Nz, Nvcoils, NtestFrames);
-for frame = 1:NtestFrames
-    imgs_mc(:, :, :, :, frame) = toppe.utils.ift3(ksp_test(:, :, :, :, frame));
-end
-
-% Coil combination
-if cfg.doSENSE
-    img_final = squeeze(sum(imgs_mc .* conj(smaps), 4));  % Matched-filter combination
-else
-    img_final = squeeze(sqrt(sum(abs(imgs_mc).^2, 4)));   % Root-sum-of-squares
-end
-
-if cfg.interactive
-    interactive4D(abs(permute(img_final,   [2 3 1 4])));
-    interactive4D(angle(permute(img_final, [2 3 1 4])));
-end
