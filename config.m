@@ -40,8 +40,10 @@ cfg.threshold_mask = 1;       % Voxels whose last eigenvalue exceeds this
                               % threshold are zeroed out in the support mask.
 
 %% ── CG-SENSE / PICS reconstruction ──────────────────────────────────────────
-cfg.lamb     = 0.005; % L1 regularisation weight (λ) passed to BART pics.
+cfg.lamb_l1  = 0.005; % L1-wavelet regularisation weight (λ) for BART pics (-R W:7:0:λ).
                       % Larger → smoother, smaller → noisier but sharper.
+cfg.lamb_tv  = 0.005; % Total-variation regularisation weight for BART pics (-R T:7:0:λ).
+                      % Applied over spatial dims only (per-frame recon has no temporal dim).
 cfg.num_iter = 100;   % Max CG iterations for cg_sense() (run_cg_sense.m).
                       % Matches the -i 100 flag used in run_bart.m.
 cfg.Nframes  = 30;    % Number of temporal frames to reconstruct.

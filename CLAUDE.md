@@ -13,7 +13,7 @@ run('run_preprocessing.m')
 
 **Stage 2 — reconstruction (choose one):**
 ```matlab
-run('run_bart.m')        % L1-regularised SENSE via BART pics
+run('run_bart.m')        % L1-wavelet + TV SENSE via BART pics
 run('run_cg_sense.m')   % Custom CG-SENSE (no BART dependency)
 ```
 

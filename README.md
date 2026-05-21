@@ -23,7 +23,7 @@ epi-preprocessing/
 ├── config.m              # All user-editable paths and tunable parameters (edit this first)
 ├── run_preprocessing.m   # Batch driver — calls preprocess() for each sequence in cfg.seqnames
 ├── preprocess.m          # Stage 1 — raw data → zero-filled k-space volume (one sequence)
-├── run_bart.m            # Stage 2 driver — L1-SENSE reconstruction via BART pics
+├── run_bart.m            # Stage 2 driver — L1-wavelet + TV reconstruction via BART pics
 ├── run_cg_sense.m        # Stage 2 driver — CG-SENSE reconstruction (no BART dependency)
 ├── recon_frames.m        # Stage 2 core — shared frame-loop, smaps loading, NIfTI write
 ├── cg_sense.m            # CG-SENSE solver (unregularised conjugate gradient)
@@ -85,7 +85,7 @@ zero-filled k-space  ──► (load all frames, then parfor)
                                   │
 sensitivity maps     ──────────── ┤
                                   ▼
-                   run_bart.m: BART pics -l1 -r λ -i 100 -S
+                   run_bart.m: BART pics -R W:7:0:λ_l1 -R T:7:0:λ_tv -i 100 -S
                    run_cg_sense.m: unregularised CG-SENSE
                                   │
                                   ▼
@@ -95,7 +95,7 @@ sensitivity maps     ──────────── ┤
                           NIfTI write (with spatial metadata)
 ```
 
-**`run_bart.m`** uses BART `pics` with L1 regularisation. The `-S` flag (strict SENSE) is required because the randomised EPI trajectory has no ACS region; iteration count is 100 to ensure convergence at R = 6. Output filename: `<seqname>_recon_bart_l1_r<λ>.nii`.
+**`run_bart.m`** uses BART `pics` with L1-wavelet (`-R W:7:0:λ_l1`) and total-variation (`-R T:7:0:λ_tv`) regularisation over spatial dims. The combined terms trigger ADMM. The `-S` flag is required because the randomised EPI trajectory has no ACS region; iteration count is 100 to ensure convergence at R = 6. Output filename: `<seqname>_recon_bart_l1_r<λ_l1>_tv_r<λ_tv>.nii`.
 
 **`run_cg_sense.m`** uses the built-in `cg_sense.m` solver — a bare conjugate-gradient SENSE loop with no regularisation. No BART dependency. Output filename: `<seqname>_recon_cgs_i<N>.nii`.
 
@@ -147,7 +147,7 @@ Called from `preprocess.m` (Stage 1) and, as a fallback, from `recon_frames.m` (
 4. Inspect the sanity-check reconstruction. Adjust `cfg.delay` (k-space center offset) and `cfg.threshold_mask` if needed.
 5. Run Stage 2 (choose one):
    ```matlab
-   run('run_bart.m')      % L1-regularised SENSE via BART pics
+   run('run_bart.m')      % L1-wavelet + TV SENSE via BART pics
    run('run_cg_sense.m')  % Unregularised CG-SENSE, no BART needed
    ```
    Both scripts process all sequences in `cfg.seqnames`.
@@ -168,7 +168,8 @@ All tunable parameters live in `config.m`. Key fields:
 | `cfg.delay` | −1 | k-space center offset (samples); adjust if ghost artifacts appear |
 | `cfg.SENSEmethod` | `'bart'` | `'bart'` (ESPIRiT) or `'pisco'` |
 | `cfg.threshold_mask` | 1 | ESPIRiT eigenvalue threshold for support mask |
-| `cfg.lamb` | 0.005 | L1 regularisation weight λ for BART `pics` |
+| `cfg.lamb_l1` | 0.005 | L1-wavelet regularisation weight λ for BART `pics` (`-R W:7:0:λ`) |
+| `cfg.lamb_tv` | 0.005 | Total-variation regularisation weight for BART `pics` (`-R T:7:0:λ`) |
 | `cfg.Nframes` | 30 | Maximum frames to reconstruct in Stage 2; defaults to all available frames in the matfile if the file contains fewer |
 | `cfg.doSENSE` | `true` | `false` falls back to root-sum-of-squares |
 | `cfg.interactive` | `true` | `false` suppresses blocking `interactive4D` windows and eigenvalue figure |
