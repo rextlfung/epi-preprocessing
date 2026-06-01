@@ -1,6 +1,6 @@
 function preprocess(cfg)
 %{
-preprocess — Load and preprocess randomised 3D EPI data for one sequence.
+preprocess — Load and preprocess randomized 3D EPI data for one sequence.
 
 Pipeline
 ────────

@@ -4,7 +4,7 @@ function cfg = set_seq_paths(cfg, seqname)
 %   cfg = set_seq_paths(cfg, seqname)
 %
 %   Called once per sequence in the batch loop of run_preprocessing.m, or directly when
-%   running preprocess() on a single sequence.  cfg.fn.kxoe is initialised
+%   running preprocess() on a single sequence.  cfg.fn.kxoe is initialized
 %   with a placeholder (kxoe90.mat); preprocess() updates it after loading
 %   params.m and Nx is known.
 %

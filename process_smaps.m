@@ -24,8 +24,8 @@ function smaps = process_smaps(smaps_raw, emaps, fov_gre, fov, ...
 %   ------
 %   smaps_raw      Unprocessed sensitivity maps  [Nx_gre × Ny_gre × Nz_gre × Nvcoils]
 %   emaps          Eigenvalue maps returned by makeSmaps  [... × Neigs]
-%   fov_gre        GRE field of view, [fx fy fz] in metres
-%   fov            EPI field of view, [fx fy fz] in metres
+%   fov_gre        GRE field of view, [fx fy fz] in meters
+%   fov            EPI field of view, [fx fy fz] in meters
 %   Nx_gre, Ny_gre, Nz_gre   GRE grid dimensions
 %   Nx, Ny, Nz     EPI grid dimensions
 %   Nvcoils        Number of virtual coils after compression
