@@ -23,7 +23,8 @@ for i = 1:numel(cfg.seqnames)
     cfg_seq  = set_seq_paths(cfg, cfg.seqnames{i});
 
     num_iter = cfg_seq.num_iter;  % captured by the anonymous function below
-    datdir   = strcat(cfg_seq.datdir, 'recon/');
+    datdir   = strcat(cfg_seq.datdir, 'recon/basic/');
+    mkdir(datdir);
     fn_recon = fullfile(datdir, sprintf('%s_recon_cgs_i%d.mat', cfg_seq.seqname, cfg_seq.num_iter));
 
     try

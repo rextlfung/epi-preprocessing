@@ -20,7 +20,8 @@ for i = 1:numel(cfg.seqnames)
     fprintf('\n[%d/%d] %s\n', i, numel(cfg.seqnames), cfg.seqnames{i});
     cfg_seq = set_seq_paths(cfg, cfg.seqnames{i});
 
-    datdir   = strcat(cfg_seq.datdir, 'recon/');
+    datdir   = strcat(cfg_seq.datdir, 'recon/basic/');
+    mkdir(datdir);
     fn_recon = fullfile(datdir, sprintf('%s_recon_rss.mat', cfg_seq.seqname));
 
     try

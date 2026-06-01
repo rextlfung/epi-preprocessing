@@ -102,5 +102,6 @@ Paths for Orchestra and hmriutils are set in `cfg.addpaths` inside `config.m`.
     ├── gre.mat
     ├── smaps_<method>.mat
     ├── <seqname>_epi_zf.mat
-    └── <seqname>_recon_*.mat
+    └── basic/
+        └── <seqname>_recon_*.mat
 ```

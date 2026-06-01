@@ -21,7 +21,8 @@ for i = 1:numel(cfg.seqnames)
     bart_cmd = sprintf('pics -R W:7:0:%g -R T:7:0:%g -i %d -S', cfg_seq.lamb_l1, cfg_seq.lamb_tv, cfg_seq.num_iter);
     fprintf('BART command: %s\n', bart_cmd);
 
-    datdir   = strcat(cfg_seq.datdir, 'recon/');
+    datdir   = strcat(cfg_seq.datdir, 'recon/basic/');
+    mkdir(datdir);
     fn_recon = fullfile(datdir, sprintf('%s_recon_bart_l1_r%.4f_tv_r%.4f.mat', cfg_seq.seqname, cfg_seq.lamb_l1, cfg_seq.lamb_tv));
 
     try
