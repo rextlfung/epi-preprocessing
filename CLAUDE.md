@@ -15,6 +15,7 @@ run('run_preprocessing.m')
 ```matlab
 run('run_bart.m')        % L1-wavelet + TV SENSE via BART pics
 run('run_cg_sense.m')   % Custom CG-SENSE (no BART dependency)
+run('run_rss.m')         % Root-sum-of-squares (no smaps, no BART)
 ```
 
 **Single sequence, ad-hoc:**
@@ -31,18 +32,18 @@ preprocess(cfg_seq);
 ### Two-stage pipeline
 
 ```
-config.m  →  run_preprocessing.m  →  preprocess.m       (Stage 1)
+config.m  →  run_preprocessing.m  →  preprocess.m              (Stage 1)
                                           ↓
                                   <seqname>_epi_zf.mat
                                           ↓
-                              run_bart.m  OR  run_cg_sense.m  (Stage 2)
-                                          ↓ (both delegate to recon_frames.m)
-                                  <seqname>_recon_*.nii
+                    run_bart.m  /  run_cg_sense.m  /  run_rss.m  (Stage 2)
+                                          ↓ (all delegate to recon_frames.m)
+                                  <seqname>_recon_*.mat
 ```
 
 Stage 1 is compute- and I/O-heavy (whitening, coil compression, NUFFT gridding). Stage 2 is iterative reconstruction; both stages support `parfor` parallelism at the frame level via `cfg.useParfor`.
 
-`recon_frames.m` contains the shared Stage 2 logic: load/compute smaps, stream k-space, run the parfor loop, write NIfTI. `run_bart.m` and `run_cg_sense.m` each set up a reconstruction function handle (`@(data, smaps) bart(...)` or `@(data, smaps) cg_sense(...)`) and call `recon_frames`.
+`recon_frames.m` contains the shared Stage 2 logic: load/compute smaps, stream k-space, run the parfor loop, and return `[img, seq_params, runtime_s]`. Each Stage 2 script sets up a reconstruction function handle and calls `recon_frames`, then saves a `.mat` file (v7.3) with the complex image and all reconstruction parameters. The `.mat` is named after the method and key hyperparameters (e.g. `<seqname>_recon_bart_l1_r0.0050_tv_r0.0050.mat`).
 
 ### cfg struct
 
@@ -66,7 +67,7 @@ Sensitivity maps are cached in `recon/smaps_<method>.mat`. `preprocess.m` saves 
 
 Both Stage 2 scripts use `parfor (frame = 1:Nframes, Nworkers)`. `Nworkers` is set to `Inf` (full pool) when `cfg.useParfor = true`, or `0` (serial) when false. The full k-space array is loaded before the `parfor` loop so workers receive array slices rather than a `matfile` handle.
 
-`cfg.Nframes` acts as an upper cap: `recon_frames.m` reconstructs `min(cfg.Nframes, actual_frames_in_file)` frames. NIfTI output includes voxel sizes (from `fov/N × 1000` mm) and `volumeTR` (seconds) in the header, sourced from `params.m`.
+`cfg.Nframes` acts as an upper cap: `recon_frames.m` reconstructs `min(cfg.Nframes, actual_frames_in_file)` frames. Geometry scalars (`fov`, `volumeTR`, etc.) are sourced from `params.m` and returned in `seq_params` for the caller to bundle into the output `.mat`.
 
 ### Interactive / batch mode
 
@@ -101,5 +102,5 @@ Paths for Orchestra and hmriutils are set in `cfg.addpaths` inside `config.m`.
     ├── gre.mat
     ├── smaps_<method>.mat
     ├── <seqname>_epi_zf.mat
-    └── <seqname>_recon_*.nii
+    └── <seqname>_recon_*.mat
 ```
