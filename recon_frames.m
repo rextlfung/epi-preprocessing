@@ -1,11 +1,16 @@
-function recon_frames(cfg, fn_recon, recon_fn)
+function [img, seq_params, runtime_s] = recon_frames(cfg, fn_recon, recon_fn)
 %RECON_FRAMES  Load smaps + k-space, reconstruct all frames, write NIfTI.
 %
 %   recon_frames(cfg, fn_recon, recon_fn)
+%   [img, seq_params, runtime_s] = recon_frames(cfg, fn_recon, recon_fn)
 %
-%   cfg      - Config struct with per-sequence paths set (from set_seq_paths)
-%   fn_recon - Output NIfTI file path
-%   recon_fn - Handle: @(data, smaps) -> [Nx, Ny, Nz] image for one frame
+%   cfg        - Config struct with per-sequence paths set (from set_seq_paths)
+%   fn_recon   - Output NIfTI file path; pass '' to skip NIfTI write
+%   recon_fn   - Handle: @(data, smaps) -> [Nx, Ny, Nz] image for one frame
+%
+%   img        - Complex single [Nx, Ny, Nz, Nframes] reconstructed image
+%   seq_params - Struct with geometry scalars: Nx, Ny, Nz, fov, volumeTR, Nvcoils, Nframes
+%   runtime_s  - Wall-clock seconds for the parfor reconstruction loop
 
 run(cfg.fn.params);   % Loads Nx, Ny, Nz, fov, fov_gre, Nx_gre, ... into workspace
 
@@ -70,7 +75,7 @@ if cfg.useParfor; Nworkers = Inf; end
 ksp = kdata.ksp_epi_zf(:, :, :, :, 1:Nframes);
 
 fprintf('Reconstructing %d frames...\n', Nframes);
-tic
+t_start = tic;
 parfor (frame = 1:Nframes, Nworkers)
     data = ksp(:, :, :, :, frame);
     try
@@ -79,23 +84,30 @@ parfor (frame = 1:Nframes, Nworkers)
         warning('recon_frames: reconstruction failed on frame %d — skipping.\n  %s', frame, ME.message);
     end
 end
-toc
+runtime_s = toc(t_start);
+fprintf('Reconstruction done in %.1f s.\n', runtime_s);
 
 if ~any(img(:))
     warning('recon_frames: all output frames are zero — recon_fn may have failed on every frame.');
 end
 
+seq_params = struct('Nx', Nx, 'Ny', Ny, 'Nz', Nz, ...
+                    'fov', fov, 'volumeTR', volumeTR, ...
+                    'Nvcoils', Nvcoils, 'Nframes', Nframes);
+
 if cfg.interactive
     interactive4D(abs(img));
 end
 
-fprintf('Writing reconstruction to %s\n', fn_recon);
-fn_tmp = [tempname() '.nii'];
-niftiwrite(abs(img), fn_tmp);
-info = niftiinfo(fn_tmp);
-delete(fn_tmp);
-info.PixelDimensions = [[fov(1)/Nx, fov(2)/Ny, fov(3)/Nz] * 1e3, volumeTR];  % mm, s
-info.SpaceUnits = 'Millimeter';
-info.TimeUnits  = 'Second';
-niftiwrite(abs(img), fn_recon, info);
+if ~isempty(fn_recon)
+    fprintf('Writing reconstruction to %s\n', fn_recon);
+    fn_tmp = [tempname() '.nii'];
+    niftiwrite(abs(img), fn_tmp);
+    info = niftiinfo(fn_tmp);
+    delete(fn_tmp);
+    info.PixelDimensions = [[fov(1)/Nx, fov(2)/Ny, fov(3)/Nz] * 1e3, volumeTR];  % mm, s
+    info.SpaceUnits = 'Millimeter';
+    info.TimeUnits  = 'Second';
+    niftiwrite(abs(img), fn_recon, info);
+end
 end

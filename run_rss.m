@@ -3,9 +3,9 @@ run_rss.m — Batch root-sum-of-squares (RSS) coil combination reconstruction.
 
 Reads the zero-filled k-space produced by run_preprocessing.m and reconstructs
 every temporal frame by applying a 3-D IFFT followed by RSS coil combination.
-No sensitivity maps are used. Output is written to a NIfTI file for each
-sequence in cfg.seqnames. No external toolboxes beyond standard MATLAB and
-TOPPE are required.
+No sensitivity maps are used. Output is saved as a .mat file containing the
+image and sequence parameters, for each sequence in cfg.seqnames. No external
+toolboxes beyond standard MATLAB and TOPPE are required.
 
 Dependencies: recon_frames.m, toppe.utils.ift3
 %}
@@ -21,10 +21,21 @@ for i = 1:numel(cfg.seqnames)
     cfg_seq = set_seq_paths(cfg, cfg.seqnames{i});
 
     datdir   = strcat(cfg_seq.datdir, 'recon/');
-    fn_recon = fullfile(datdir, sprintf('%s_recon_rss.nii', cfg_seq.seqname));
+    fn_recon = fullfile(datdir, sprintf('%s_recon_rss.mat', cfg_seq.seqname));
 
     try
-        recon_frames(cfg_seq, fn_recon, @(data, ~) sqrt(sum(abs(toppe.utils.ift3(data)).^2, 4)));
+        [img, seq_params, runtime_s] = recon_frames(cfg_seq, '', @(data, ~) sqrt(sum(abs(toppe.utils.ift3(data)).^2, 4)));
+
+        Nx = seq_params.Nx;  Ny = seq_params.Ny;  Nz = seq_params.Nz;
+        fov = seq_params.fov;  volumeTR = seq_params.volumeTR;
+        Nvcoils = seq_params.Nvcoils;  Nframes = seq_params.Nframes;
+        seqname = cfg_seq.seqname;
+
+        fprintf('Saving reconstruction to %s\n', fn_recon);
+        save(fn_recon, ...
+            'img', ...
+            'seqname', 'Nx', 'Ny', 'Nz', 'fov', 'volumeTR', 'Nvcoils', 'Nframes', ...
+            'runtime_s', '-v7.3');
     catch ME
         fprintf('ERROR [%s]: %s\nSkipping...\n', cfg_seq.seqname, ME.message);
     end
