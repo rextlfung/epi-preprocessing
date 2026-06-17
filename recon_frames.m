@@ -58,8 +58,8 @@ else
     save(fn_smaps, 'smaps_raw', 'emaps', 'smaps', 'Nvcoils', '-v7.3');
 end
 
-% Uncomment if x-direction alignment between GRE and EPI is needed:
-% smaps = flip(smaps, 1);
+% GRE and EPI both use a negative x pre-phaser (ArbEPI/GRE.m and
+% ArbEPI/lib/make_prephasers.m), so no x-direction flip is needed.
 
 %% Frame-by-frame reconstruction
 kdata_size    = size(kdata, 'ksp_epi_zf');

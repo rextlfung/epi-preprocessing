@@ -31,7 +31,7 @@ function smaps = process_smaps(smaps_raw, emaps, fov_gre, fov, ...
 %   Nvcoils        Number of virtual coils after compression
 %   SENSEmethod    'bart' or 'pisco'  (controls eigenmap sign convention)
 %   threshold_mask Scalar threshold applied to the last eigenvalue map.
-%                  Voxels below this value are retained; others are zeroed.
+%                  Voxels whose eigenvalue exceeds this value are retained; others are zeroed.
 %
 %   Output
 %   ------
@@ -58,14 +58,15 @@ function smaps = process_smaps(smaps_raw, emaps, fov_gre, fov, ...
         fov(3), fov_gre(3));
 
     %% ── 1. Eigenvalue support mask ───────────────────────────────────────────
-    % BART ESPIRiT returns emaps = (1 - true_eig), so invert before thresholding.
-    if strcmp(SENSEmethod, 'bart')
+    % PISCO returns (1 - true_eig); invert to get true eigenvalues (high = inside).
+    % BART ESPIRiT returns true eigenvalues directly — no conversion needed.
+    if strcmp(SENSEmethod, 'pisco')
         emaps = 1 - emaps;
     end
 
     % Last eigenvalue map carries the most information about signal support.
     eig_last = emaps(:, :, :, end);
-    eig_mask = double(eig_last < threshold_mask);  % 1 inside object, 0 outside
+    eig_mask = double(eig_last > threshold_mask);  % 1 inside object (high eigenvalue), 0 outside
 
     smaps = smaps_raw .* eig_mask;
 

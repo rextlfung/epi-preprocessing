@@ -37,8 +37,10 @@ cfg.showEPIphaseDiff = true;  % Plot odd/even phase difference during calibratio
 %% ── Sensitivity map estimation ───────────────────────────────────────────────
 cfg.SENSEmethod    = 'bart';  % 'bart'  — uses BART ESPIRiT
                               % 'pisco' — uses PISCO (eigenvalue method)
-cfg.threshold_mask = 1;       % Voxels whose last eigenvalue exceeds this
-                              % threshold are zeroed out in the support mask.
+cfg.threshold_mask = 0.2;     % Eigenvalue threshold for object-support masking in
+                              % process_smaps. Voxels whose last ESPIRiT/PISCO
+                              % eigenvalue exceeds this value are kept; others are
+                              % zeroed out. Tune upward to tighten the mask.
 
 %% ── CG-SENSE / PICS reconstruction ──────────────────────────────────────────
 cfg.lamb_l1  = 0.005; % L1-wavelet regularization weight (λ) for BART pics (-R W:7:0:λ).

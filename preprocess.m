@@ -139,8 +139,8 @@ if cfg.doSENSE
     end
     clear smaps_raw emaps fn_smaps_valid;
 
-    % Uncomment if x-direction alignment between GRE and EPI is needed:
-    % smaps = flip(smaps, 1);
+    % GRE and EPI both use a negative x pre-phaser (ArbEPI/GRE.m and
+    % ArbEPI/lib/make_prephasers.m), so no x-direction flip is needed.
 end
 
 if cfg.interactive
