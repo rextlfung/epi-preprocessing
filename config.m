@@ -16,8 +16,8 @@ cfg.addpaths = {
 };
 
 %% ── Data directory & file names ──────────────────────────────────────────────
-cfg.datdir   = '/StorageRAID/rexfung/20260409tap/';
-cfg.seqnames = {'caipi', 'caipi_ts', 'pd'};  % Cell array of sequence names to process.
+cfg.datdir   = '/StorageRAID/rexfung/20260317tap/';
+cfg.seqnames = {'caipi', 'pd'};  % Cell array of sequence names to process.
                               % Per-sequence paths are built by set_seq_paths.m.
 cfg.fn.gre   = fullfile(cfg.datdir, 'scanarchives/gre.h5');
 
