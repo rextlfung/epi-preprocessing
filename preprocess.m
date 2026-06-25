@@ -60,7 +60,6 @@ fprintf('  Max |Re(GRE)|: %g\n', max(real(ksp_gre_raw(:))));
 fprintf('  Max |Im(GRE)|: %g\n', max(imag(ksp_gre_raw(:))));
 
 % Reshape: discard the blipless calibration block prepended by the scanner
-Nfid_gre = size(ksp_gre_raw, 1);
 ksp_gre  = ksp_gre_raw(:, :, Ny_gre+1:end);
 ksp_gre  = reshape(ksp_gre, Nx_gre, Ncoils, Ny_gre, Nz_gre);
 ksp_gre  = permute(ksp_gre, [1 3 4 2]);  % → [Nx_gre, Ny_gre, Nz_gre, Ncoils]
@@ -159,8 +158,8 @@ catch ME
     error('preprocess: Failed to read calibration file ''%s''.\n  %s', cfg.fn.cal, ME.message);
 end
 
-assert(Nfid == size(ksp_cal_raw, 1), ...
-    'preprocess: Calibration Nfid (%d) does not match noise Nfid (%d).', ...
+assert(size(ksp_cal_raw, 1) == Nfid, ...
+    'preprocess: Calibration Nfid (%d) != noise Nfid (%d) — wrong noise file?', ...
     size(ksp_cal_raw, 1), Nfid);
 fprintf('  Max |Re(cal)|: %g,  Max |Im(cal)|: %g\n', ...
     max(real(ksp_cal_raw(:))), max(imag(ksp_cal_raw(:))));
@@ -265,6 +264,11 @@ for frame = start_frame:Nframes
     ksp_frame_raw = zeros(Nfid, Ncoils, shots_per_frame, 'single');
     for s = 1:shots_per_frame
         shot = GERecon('Archive.Next', epi_archive);
+        if frame == start_frame && s == 1
+            assert(size(shot.Data, 1) == Nfid, ...
+                'preprocess: EPI readout length (%d) != Nfid (%d) — check EPI and cal files.', ...
+                size(shot.Data, 1), Nfid);
+        end
         ksp_frame_raw(:, :, s) = single(shot.Data);
     end
 
