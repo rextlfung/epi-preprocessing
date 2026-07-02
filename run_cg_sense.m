@@ -28,7 +28,7 @@ for i = 1:numel(cfg.seqnames)
     fn_recon = fullfile(datdir, sprintf('%s_recon_cgs_i%d.mat', cfg_seq.seqname, cfg_seq.num_iter));
 
     try
-        [img, seq_params, runtime_s] = recon_frames(cfg_seq, '', @(data, smaps) cg_sense(data, smaps, num_iter));
+        [img, seq_params, runtime_s] = recon_frames(cfg_seq, @(data, smaps) cg_sense(data, smaps, num_iter));
 
         Nx = seq_params.Nx;  Ny = seq_params.Ny;  Nz = seq_params.Nz;
         fov = seq_params.fov;  volumeTR = seq_params.volumeTR;

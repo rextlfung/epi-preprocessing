@@ -26,7 +26,7 @@ for i = 1:numel(cfg.seqnames)
     fn_recon = fullfile(datdir, sprintf('%s_recon_bart_l1_r%.4f_tv_r%.4f.mat', cfg_seq.seqname, cfg_seq.lamb_l1, cfg_seq.lamb_tv));
 
     try
-        [img, seq_params, runtime_s] = recon_frames(cfg_seq, '', @(data, smaps) bart(bart_cmd, data, smaps));
+        [img, seq_params, runtime_s] = recon_frames(cfg_seq, @(data, smaps) bart(bart_cmd, data, smaps));
 
         Nx = seq_params.Nx;  Ny = seq_params.Ny;  Nz = seq_params.Nz;
         fov = seq_params.fov;  volumeTR = seq_params.volumeTR;

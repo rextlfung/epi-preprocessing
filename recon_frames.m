@@ -1,11 +1,9 @@
-function [img, seq_params, runtime_s] = recon_frames(cfg, fn_recon, recon_fn)
-%RECON_FRAMES  Load smaps + k-space, reconstruct all frames, write NIfTI.
+function [img, seq_params, runtime_s] = recon_frames(cfg, recon_fn)
+%RECON_FRAMES  Load smaps + k-space, reconstruct all frames.
 %
-%   recon_frames(cfg, fn_recon, recon_fn)
-%   [img, seq_params, runtime_s] = recon_frames(cfg, fn_recon, recon_fn)
+%   [img, seq_params, runtime_s] = recon_frames(cfg, recon_fn)
 %
 %   cfg        - Config struct with per-sequence paths set (from set_seq_paths)
-%   fn_recon   - Output NIfTI file path; pass '' to skip NIfTI write
 %   recon_fn   - Handle: @(data, smaps) -> [Nx, Ny, Nz] image for one frame
 %
 %   img        - Complex single [Nx, Ny, Nz, Nframes] reconstructed image
@@ -97,17 +95,5 @@ seq_params = struct('Nx', Nx, 'Ny', Ny, 'Nz', Nz, ...
 
 if cfg.interactive
     interactive4D(abs(img));
-end
-
-if ~isempty(fn_recon)
-    fprintf('Writing reconstruction to %s\n', fn_recon);
-    fn_tmp = [tempname() '.nii'];
-    niftiwrite(abs(img), fn_tmp);
-    info = niftiinfo(fn_tmp);
-    delete(fn_tmp);
-    info.PixelDimensions = [[fov(1)/Nx, fov(2)/Ny, fov(3)/Nz] * 1e3, volumeTR];  % mm, s
-    info.SpaceUnits = 'Millimeter';
-    info.TimeUnits  = 'Second';
-    niftiwrite(abs(img), fn_recon, info);
 end
 end

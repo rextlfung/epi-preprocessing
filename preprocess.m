@@ -206,7 +206,12 @@ try
 catch ME
     error('preprocess: Could not load sampling log ''%s''.\n  %s', cfg.fn.samp_log, ME.message);
 end
+ETL_params = ETL;  % from params.m; verify against the sampling schedule below
 [Nframes, Nshots, ETL, ~] = size(schedules);
+assert(ETL == ETL_params, ...
+    'preprocess: Sampling schedule ETL (%d) != params.m ETL (%d) — wrong schedule file?', ...
+    ETL, ETL_params);
+clear ETL_params;
 
 % Rebuild the binary sampling mask from the schedule.
 % omegas(iy, iz, frame) = true iff that (ky, kz) location is acquired.

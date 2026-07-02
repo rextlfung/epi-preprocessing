@@ -25,7 +25,8 @@ epi-preprocessing/
 ├── preprocess.m          # Stage 1 — raw data → zero-filled k-space volume (one sequence)
 ├── run_bart.m            # Stage 2 driver — L1-wavelet + TV reconstruction via BART pics
 ├── run_cg_sense.m        # Stage 2 driver — CG-SENSE reconstruction (no BART dependency)
-├── recon_frames.m        # Stage 2 core — shared frame-loop, smaps loading, NIfTI write
+├── run_rss.m             # Stage 2 driver — root-sum-of-squares (no smaps, no BART)
+├── recon_frames.m        # Stage 2 core — shared smaps loading + frame-loop
 ├── cg_sense.m            # CG-SENSE solver (unregularized conjugate gradient)
 ├── set_seq_paths.m       # Helper — populate per-sequence cfg.seqname / cfg.fn.* fields
 └── process_smaps.m       # Helper — mask, crop, and resize sensitivity maps
@@ -76,28 +77,33 @@ A quick sanity-check reconstruction (RSS or matched-filter SENSE) of the first 6
 
 ---
 
-### Stage 2 — `run_bart.m` / `run_cg_sense.m`
+### Stage 2 — `run_bart.m` / `run_cg_sense.m` / `run_rss.m`
 
-Both drivers read the zero-filled k-space produced by Stage 1 and delegate to the shared `recon_frames.m`, passing a per-frame reconstruction function handle. Output is one NIfTI per sequence with voxel sizes and TR embedded in the header.
+All three drivers read the zero-filled k-space produced by Stage 1 and delegate to the shared `recon_frames.m`, passing a per-frame reconstruction function handle. Each driver then saves its own `.mat` file (v7.3) containing the complex image and all reconstruction parameters.
 
 ```
 zero-filled k-space  ──► (load all frames, then parfor)
                                   │
 sensitivity maps     ──────────── ┤
                                   ▼
-                   run_bart.m: BART pics -R W:7:0:λ_l1 -R T:7:0:λ_tv -i 100 -S
+                   run_bart.m:     BART pics -R W:7:0:λ_l1 -R T:7:0:λ_tv -i 100 -S
                    run_cg_sense.m: unregularized CG-SENSE
+                   run_rss.m:      3-D IFFT + root-sum-of-squares (no smaps, no BART)
                                   │
                                   ▼
                           img [Nx, Ny, Nz, Nframes]
                                   │
                                   ▼
-                          NIfTI write (with spatial metadata)
+                     .mat write to recon/basic/ (image + recon parameters)
 ```
 
-**`run_bart.m`** uses BART `pics` with L1-wavelet (`-R W:7:0:λ_l1`) and total-variation (`-R T:7:0:λ_tv`) regularization over spatial dims. The combined terms trigger ADMM. The `-S` flag is required because the randomized EPI trajectory has no ACS region; iteration count is 100 to ensure convergence at R = 6. Output filename: `<seqname>_recon_bart_l1_r<λ_l1>_tv_r<λ_tv>.nii`.
+**`run_bart.m`** uses BART `pics` with L1-wavelet (`-R W:7:0:λ_l1`) and total-variation (`-R T:7:0:λ_tv`) regularization over spatial dims. The combined terms trigger ADMM. The `-S` flag is required because the randomized EPI trajectory has no ACS region; iteration count is 100 to ensure convergence at R = 6. Output filename: `<seqname>_recon_bart_l1_r<λ_l1>_tv_r<λ_tv>.mat`.
 
-**`run_cg_sense.m`** uses the built-in `cg_sense.m` solver — a bare conjugate-gradient SENSE loop with no regularization. No BART dependency. Output filename: `<seqname>_recon_cgs_i<N>.nii`.
+**`run_cg_sense.m`** uses the built-in `cg_sense.m` solver — a bare conjugate-gradient SENSE loop with no regularization. No BART dependency. Output filename: `<seqname>_recon_cgs_i<N>.mat`.
+
+**`run_rss.m`** applies a 3-D IFFT followed by root-sum-of-squares coil combination — no sensitivity maps, no BART, no regularization. Requires only standard MATLAB and TOPPE (`toppe.utils.ift3`). Output filename: `<seqname>_recon_rss.mat`.
+
+All three save to `<datdir>/recon/basic/`.
 
 ---
 
@@ -139,9 +145,9 @@ Called from `preprocess.m` (Stage 1) and, as a fallback, from `recon_frames.m` (
    ```matlab
    run('run_preprocessing.m')
    ```
-   For a single sequence set `cfg.seqnames = {'caipi_ts'}`. For batch, add more entries:
+   For a single sequence set `cfg.seqnames = {'caipi'}`. For batch, add more entries:
    ```matlab
-   cfg.seqnames = {'caipi', 'caipi_ts', 'pd', 'pd_acs'};
+   cfg.seqnames = {'caipi', 'pd'};
    ```
    Set `cfg.interactive = false` to suppress blocking visualization windows during batch runs.
 4. Inspect the sanity-check reconstruction. Adjust `cfg.delay` (k-space center offset) and `cfg.threshold_mask` if needed.
@@ -149,11 +155,13 @@ Called from `preprocess.m` (Stage 1) and, as a fallback, from `recon_frames.m` (
    ```matlab
    run('run_bart.m')      % L1-wavelet + TV SENSE via BART pics
    run('run_cg_sense.m')  % Unregularized CG-SENSE, no BART needed
+   run('run_rss.m')       % Root-sum-of-squares, no smaps, no BART needed
    ```
-   Both scripts process all sequences in `cfg.seqnames`.
-6. The final reconstruction is saved as a NIfTI with embedded voxel sizes and TR:
-   - BART: `<datdir>/recon/<seqname>_recon_bart_l1_r<λ>.nii`
-   - CG-SENSE: `<datdir>/recon/<seqname>_recon_cgs_i<N>.nii`
+   Each script processes all sequences in `cfg.seqnames`.
+6. The final reconstruction is saved as a `.mat` file (v7.3) with the complex image and all reconstruction parameters:
+   - BART: `<datdir>/recon/basic/<seqname>_recon_bart_l1_r<λ_l1>_tv_r<λ_tv>.mat`
+   - CG-SENSE: `<datdir>/recon/basic/<seqname>_recon_cgs_i<N>.mat`
+   - RSS: `<datdir>/recon/basic/<seqname>_recon_rss.mat`
 
 ---
 
@@ -163,17 +171,19 @@ All tunable parameters live in `config.m`. Key fields:
 
 | Field | Default | Description |
 |---|---|---|
-| `cfg.seqnames` | `{'caipi_ts'}` | Cell array of sequence names to process; add entries for batch runs |
-| `cfg.cc_energy_thresh` | 0.95 | Fraction of coil-data variance to retain; auto-selects Nvcoils from GRE eigenvalue spectrum with a 2R lower bound |
+| `cfg.seqnames` | `{'caipi', 'pd'}` | Cell array of sequence names to process; add entries for batch runs |
+| `cfg.cc_energy_thresh` | 0.9 | Fraction of coil-data variance to retain; auto-selects Nvcoils from GRE eigenvalue spectrum with a 2R lower bound |
 | `cfg.delay` | −1 | k-space center offset (samples); adjust if ghost artifacts appear |
 | `cfg.SENSEmethod` | `'bart'` | `'bart'` (ESPIRiT) or `'pisco'` |
-| `cfg.threshold_mask` | 1 | ESPIRiT eigenvalue threshold for support mask |
+| `cfg.threshold_mask` | 0.2 | ESPIRiT eigenvalue threshold for support mask |
 | `cfg.lamb_l1` | 0.005 | L1-wavelet regularization weight λ for BART `pics` (`-R W:7:0:λ`) |
 | `cfg.lamb_tv` | 0.005 | Total-variation regularization weight for BART `pics` (`-R T:7:0:λ`) |
-| `cfg.Nframes` | 30 | Maximum frames to reconstruct in Stage 2; defaults to all available frames in the matfile if the file contains fewer |
+| `cfg.num_iter` | 100 | Max CG iterations for `cg_sense()`; matches the `-i 100` flag used in `run_bart.m` |
+| `cfg.Nframes` | `Inf` | Maximum frames to reconstruct in Stage 2; defaults to all available frames in the matfile if the file contains fewer |
 | `cfg.doSENSE` | `true` | `false` falls back to root-sum-of-squares |
-| `cfg.interactive` | `true` | `false` suppresses blocking `interactive4D` windows and eigenvalue figure |
-| `cfg.showEPIphaseDiff` | `true` | Plot odd/even phase difference during calibration |
+| `cfg.useParfor` | `false` | `true` uses `parfor` for parallel frame reconstruction; `false` runs serially (easier debugging) |
+| `cfg.interactive` | `false` | `true` enables blocking `interactive4D` windows and the eigenvalue figure |
+| `cfg.showEPIphaseDiff` | `true` | Plot odd/even phase difference during calibration (only when `cfg.interactive` is also `true`) |
 | `cfg.useOrchestra` | `true` | Use Orchestra library to read ScanArchive `.h5` files |
 
 ---

@@ -25,7 +25,7 @@ for i = 1:numel(cfg.seqnames)
     fn_recon = fullfile(datdir, sprintf('%s_recon_rss.mat', cfg_seq.seqname));
 
     try
-        [img, seq_params, runtime_s] = recon_frames(cfg_seq, '', @(data, ~) sqrt(sum(abs(toppe.utils.ift3(data)).^2, 4)));
+        [img, seq_params, runtime_s] = recon_frames(cfg_seq, @(data, ~) sqrt(sum(abs(toppe.utils.ift3(data)).^2, 4)));
 
         Nx = seq_params.Nx;  Ny = seq_params.Ny;  Nz = seq_params.Nz;
         fov = seq_params.fov;  volumeTR = seq_params.volumeTR;
